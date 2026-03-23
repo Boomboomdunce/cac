@@ -108,6 +108,17 @@ impl LaunchPlanBuilder {
 
         let plan = LaunchPlan::new(profile, adapter).map_err(LaunchError::Plan)?;
         let adapter_name = plan.adapter_identity().to_string();
+        let provided_capabilities = core::CapabilitySet::current_platform_capabilities();
+        let missing_capabilities = plan.required_capabilities().difference(&provided_capabilities);
+        if !missing_capabilities.is_empty() {
+            return Err(LaunchError::MissingRequiredCapabilities {
+                adapter_name,
+                platform: core::CapabilitySet::current_platform_identity().to_string(),
+                missing_capabilities,
+            });
+        }
+
+        let adapter_name = plan.adapter_identity().to_string();
         let requires_sidecar = requires_sidecar_for_adapter(adapter_name.as_str());
         let session = match self.session {
             Some(session) => normalize_session(session, adapter_name.as_str(), requires_sidecar),
@@ -167,6 +178,11 @@ pub enum LaunchError {
     MissingProfile,
     MissingAdapter,
     MissingCommand,
+    MissingRequiredCapabilities {
+        adapter_name: String,
+        platform: String,
+        missing_capabilities: core::CapabilitySet,
+    },
     Plan(LaunchPlanError),
     Sidecar(SidecarError),
     Execution(std::io::Error),
@@ -178,6 +194,17 @@ impl fmt::Display for LaunchError {
             LaunchError::MissingProfile => write!(f, "missing profile for launch plan"),
             LaunchError::MissingAdapter => write!(f, "missing adapter for launch plan"),
             LaunchError::MissingCommand => write!(f, "missing command to launch"),
+            LaunchError::MissingRequiredCapabilities {
+                adapter_name,
+                platform,
+                missing_capabilities,
+            } => write!(
+                f,
+                "required capability mismatch for adapter `{}` on platform `{}`: missing {}",
+                adapter_name,
+                platform,
+                render_capability_set(missing_capabilities)
+            ),
             LaunchError::Plan(err) => write!(f, "{}", err),
             LaunchError::Sidecar(err) => write!(f, "{}", err),
             LaunchError::Execution(err) => write!(f, "failed to execute command: {}", err),
@@ -248,4 +275,12 @@ fn quote_node_option_value(value: &str) -> String {
 
     let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
     format!("\"{escaped}\"")
+}
+
+fn render_capability_set(capabilities: &core::CapabilitySet) -> String {
+    capabilities
+        .iter()
+        .map(|value| value.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }

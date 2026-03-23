@@ -1,6 +1,15 @@
 use std::collections::BTreeSet;
 use std::iter::FromIterator;
 
+#[cfg(target_os = "macos")]
+const CURRENT_PLATFORM_IDENTITY: &str = "macos";
+#[cfg(target_os = "linux")]
+const CURRENT_PLATFORM_IDENTITY: &str = "linux";
+#[cfg(target_os = "windows")]
+const CURRENT_PLATFORM_IDENTITY: &str = "windows";
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+const CURRENT_PLATFORM_IDENTITY: &str = "unknown";
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CapabilitySet {
     inner: BTreeSet<String>,
@@ -25,6 +34,20 @@ impl CapabilitySet {
         self.inner.is_subset(&other.inner)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    pub fn difference(&self, other: &Self) -> Self {
+        CapabilitySet {
+            inner: self
+                .inner
+                .difference(&other.inner)
+                .cloned()
+                .collect(),
+        }
+    }
+
     pub fn union(&self, other: &Self) -> Self {
         CapabilitySet {
             inner: self.inner.union(&other.inner).cloned().collect(),
@@ -33,6 +56,20 @@ impl CapabilitySet {
 
     pub fn iter(&self) -> impl Iterator<Item = &String> {
         self.inner.iter()
+    }
+
+    pub fn current_platform_identity() -> &'static str {
+        CURRENT_PLATFORM_IDENTITY
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+    pub fn current_platform_capabilities() -> Self {
+        CapabilitySet::from(["node_preload", "sidecar"])
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    pub fn current_platform_capabilities() -> Self {
+        CapabilitySet::new()
     }
 }
 

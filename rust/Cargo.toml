@@ -9,5 +9,8 @@ members = [
   "crates/sidecar",
   "crates/adapters/claude",
   "crates/runtime-hooks/node",
+  "crates/platform-macos",
+  "crates/platform-linux",
+  "crates/platform-windows",
 ]
 resolver = "2"

@@ -78,6 +78,28 @@ fn claude_launch_plan_normalizes_injected_session_metadata() {
 }
 
 #[test]
+fn launcher_refuses_when_required_capabilities_are_missing() {
+    let profile = Profile::new("claude-profile", "claude", PrivacyPolicy::default());
+    let adapter = TargetAdapter::new(
+        profile.adapter.clone(),
+        CapabilitySet::from(["node_preload", "sidecar", "kernel_driver"]),
+        CapabilitySet::new(),
+        PrivacyPolicy::default(),
+    );
+
+    let err = LaunchPlanBuilder::new()
+        .profile(profile)
+        .adapter(adapter)
+        .command(vec!["true".to_string()])
+        .build()
+        .unwrap_err();
+
+    assert!(err
+        .to_string()
+        .contains("required capability"));
+}
+
+#[test]
 fn run_executes_generic_command_under_profile() {
     let temp = tempdir().unwrap();
     Command::cargo_bin("ccp")

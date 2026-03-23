@@ -91,16 +91,37 @@ pub fn adapter_resolution(config: &DoctorConfig) -> CheckResult {
         );
     }
 
+    let required_capabilities = required_capabilities_for_adapter(adapter_name.as_str());
+    let platform_identity = CapabilitySet::current_platform_identity();
+    let provided_capabilities = CapabilitySet::current_platform_capabilities();
+    let missing_capabilities = required_capabilities.difference(&provided_capabilities);
+    if !missing_capabilities.is_empty() {
+        return CheckResult::error(
+            "adapter resolution",
+            Some(format!(
+                "adapter '{}' is unsupported on '{}' due to missing required capabilities: {}",
+                adapter_name,
+                platform_identity,
+                render_capability_set(&missing_capabilities)
+            )),
+        );
+    }
+
     let adapter = TargetAdapter::new(
         adapter_name.clone(),
-        CapabilitySet::new(),
+        required_capabilities,
         CapabilitySet::new(),
         PrivacyPolicy::default(),
     );
 
     CheckResult::ok(
         "adapter resolution",
-        Some(format!("adapter '{}' is supported", adapter.name)),
+        Some(format!(
+            "adapter '{}' is supported on '{}' with capabilities: {}",
+            adapter.name,
+            platform_identity,
+            render_capability_set(&provided_capabilities)
+        )),
     )
 }
 
@@ -190,4 +211,24 @@ fn has_owner_only_permissions(path: &Path) -> std::io::Result<bool> {
         let _ = path.metadata()?;
         Ok(true)
     }
+}
+
+fn required_capabilities_for_adapter(adapter_name: &str) -> CapabilitySet {
+    if adapter_name.eq_ignore_ascii_case("claude") {
+        CapabilitySet::from(["node_preload", "sidecar"])
+    } else {
+        CapabilitySet::new()
+    }
+}
+
+fn render_capability_set(capabilities: &CapabilitySet) -> String {
+    if capabilities.is_empty() {
+        return "<none>".to_string();
+    }
+
+    capabilities
+        .iter()
+        .map(|value| value.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
