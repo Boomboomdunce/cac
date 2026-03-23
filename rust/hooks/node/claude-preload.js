@@ -180,18 +180,24 @@
       };
     }
 
-    const options = {};
-    options.port = args[0];
+    const options = { port: args[0] };
+    let callbackIndex = 1;
+
     if (typeof args[1] === 'string') {
       options.host = args[1];
-    }
-    if (typeof args[2] === 'object' && args[2] !== null) {
-      Object.assign(options, args[2]);
+      callbackIndex = 2;
+      if (typeof args[2] === 'object' && args[2] !== null) {
+        Object.assign(options, args[2]);
+        callbackIndex = 3;
+      }
+    } else if (typeof args[1] === 'object' && args[1] !== null) {
+      Object.assign(options, args[1]);
+      callbackIndex = 2;
     }
 
     return {
       options,
-      callback: typeof args[args.length - 1] === 'function' ? args[args.length - 1] : undefined,
+      callback: typeof args[callbackIndex] === 'function' ? args[callbackIndex] : undefined,
     };
   }
 
@@ -200,23 +206,25 @@
     const cert = readOptionalFile(process.env.CCP_MTLS_CERT || process.env.CAC_MTLS_CERT);
     const key = readOptionalFile(process.env.CCP_MTLS_KEY || process.env.CAC_MTLS_KEY);
     const ca = readOptionalFile(process.env.CCP_MTLS_CA || process.env.CAC_MTLS_CA);
-
-    if (!proxyHostPort || !cert || !key) {
-      return;
-    }
-
+    const mtlsEnabled = Boolean(proxyHostPort && cert && key);
     const [proxyHost, proxyPortRaw] = proxyHostPort.split(':', 2);
     const proxyPort = Number(proxyPortRaw || 0);
     const originalTlsConnect = tls.connect;
 
     tls.connect = function ccpTlsConnect(...args) {
       const { options, callback } = normalizeTlsConnectArgs(args);
+      const targetNames = [options.servername, options.host, options.hostname].filter(Boolean);
+      const blockedTarget = targetNames.find((name) => isBlocked(name));
+      if (blockedTarget) {
+        return blockedSocket(blockedTarget);
+      }
+
       const targetHost = options.host || options.hostname || '';
       const targetPort = Number(options.port || 0);
       const matchesProxy =
         targetHost === proxyHost && (proxyPort === 0 || proxyPort === targetPort);
 
-      if (matchesProxy && !options.cert && !options.key) {
+      if (mtlsEnabled && matchesProxy && !options.cert && !options.key) {
         options.cert = cert;
         options.key = key;
         if (ca) {
