@@ -86,7 +86,10 @@ impl fmt::Debug for PrivacyPolicy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = f.debug_struct("PrivacyPolicy");
         debug.field("blocked_hosts", &self.blocked_hosts);
-        debug.field("proxy_url", &self.proxy_url.as_deref().map(redact_proxy_url));
+        debug.field(
+            "proxy_url",
+            &self.proxy_url.as_deref().map(redact_proxy_url),
+        );
         debug.finish()
     }
 }
@@ -152,9 +155,7 @@ fn find_next_url(raw: &str) -> Option<usize> {
 }
 
 fn split_trailing_punctuation(raw: &str) -> (&str, &str) {
-    let split_at = raw
-        .trim_end_matches([')', ']', '}', ',', ';', '.'])
-        .len();
+    let split_at = raw.trim_end_matches([')', ']', '}', ',', ';', '.']).len();
     (&raw[..split_at], &raw[split_at..])
 }
 

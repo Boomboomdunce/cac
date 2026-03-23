@@ -115,9 +115,7 @@ fn launcher_refuses_when_required_capabilities_are_missing() {
         .build()
         .unwrap_err();
 
-    assert!(err
-        .to_string()
-        .contains("required capability"));
+    assert!(err.to_string().contains("required capability"));
 }
 
 #[test]
@@ -173,8 +171,7 @@ fn builder_quotes_runtime_hook_paths_in_node_options() {
         .adapter(adapter)
         .command(vec!["true".to_string()])
         .adapter_policy(
-            AdapterLaunchPolicy::new()
-                .with_runtime_hook_path("/tmp/ccp hooks/claude-preload.js"),
+            AdapterLaunchPolicy::new().with_runtime_hook_path("/tmp/ccp hooks/claude-preload.js"),
         )
         .build()
         .expect("failed to build launch plan");
@@ -198,9 +195,7 @@ fn builder_merges_staged_node_options_with_runtime_hook_requirement() {
         .adapter(adapter)
         .command(vec!["true".to_string()])
         .env_var("NODE_OPTIONS", "--trace-warnings")
-        .adapter_policy(
-            AdapterLaunchPolicy::new().with_runtime_hook_path("/tmp/claude-preload.js"),
-        )
+        .adapter_policy(AdapterLaunchPolicy::new().with_runtime_hook_path("/tmp/claude-preload.js"))
         .build()
         .expect("failed to build launch plan");
 
@@ -253,10 +248,7 @@ fn run_propagates_signal_exit_code() {
         .code(128 + 15);
 }
 
-fn latest_env_value(
-    execution: &launcher::LaunchPlanExecution,
-    key: &str,
-) -> Option<String> {
+fn latest_env_value(execution: &launcher::LaunchPlanExecution, key: &str) -> Option<String> {
     execution
         .env_plan
         .iter()

@@ -15,11 +15,7 @@ impl AdapterLaunchPolicy {
         Self::default()
     }
 
-    pub fn with_env_override(
-        mut self,
-        key: impl Into<String>,
-        value: impl Into<String>,
-    ) -> Self {
+    pub fn with_env_override(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env_overrides.push((key.into(), value.into()));
         self
     }
@@ -109,7 +105,9 @@ impl LaunchPlanBuilder {
         let plan = LaunchPlan::new(profile, adapter).map_err(LaunchError::Plan)?;
         let adapter_name = plan.adapter_identity().to_string();
         let provided_capabilities = current_platform_capabilities();
-        let missing_capabilities = plan.required_capabilities().difference(&provided_capabilities);
+        let missing_capabilities = plan
+            .required_capabilities()
+            .difference(&provided_capabilities);
         if !missing_capabilities.is_empty() {
             return Err(LaunchError::MissingRequiredCapabilities {
                 adapter_name,
@@ -152,7 +150,10 @@ impl LaunchPlanBuilder {
                 .or_else(|| std::env::var("NODE_OPTIONS").ok());
             self.env_plan.insert(
                 "NODE_OPTIONS",
-                compose_node_options(existing_node_options.as_deref(), runtime_hook_value.as_str()),
+                compose_node_options(
+                    existing_node_options.as_deref(),
+                    runtime_hook_value.as_str(),
+                ),
             );
         }
 
@@ -239,11 +240,7 @@ fn requires_sidecar_for_adapter(adapter_name: &str) -> bool {
     adapter_name.eq_ignore_ascii_case("claude")
 }
 
-fn normalize_session(
-    mut session: Session,
-    adapter_name: &str,
-    requires_sidecar: bool,
-) -> Session {
+fn normalize_session(mut session: Session, adapter_name: &str, requires_sidecar: bool) -> Session {
     session.adapter = adapter_name.to_string();
     session.sidecar_required |= requires_sidecar;
     session.protocol_version = sidecar::SIDECAR_PROTOCOL_VERSION;

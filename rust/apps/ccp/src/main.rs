@@ -225,7 +225,8 @@ fn resolve_adapter_policy(
 }
 
 fn materialize_runtime_hook(path: PathBuf, contents: &str) -> Result<PathBuf> {
-    fs::write(&path, contents).with_context(|| format!("writing runtime hook to {}", path.display()))?;
+    fs::write(&path, contents)
+        .with_context(|| format!("writing runtime hook to {}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

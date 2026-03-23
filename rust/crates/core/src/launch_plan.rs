@@ -1,4 +1,6 @@
-use crate::{adapter::TargetAdapter, capability::CapabilitySet, policy::PrivacyPolicy, profile::Profile};
+use crate::{
+    adapter::TargetAdapter, capability::CapabilitySet, policy::PrivacyPolicy, profile::Profile,
+};
 use std::fmt;
 
 #[derive(Clone, Debug)]

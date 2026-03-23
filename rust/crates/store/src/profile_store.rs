@@ -67,9 +67,7 @@ impl ProfileStore {
     }
 
     fn profile_path(&self, name: &str) -> PathBuf {
-        self.layout
-            .profiles_dir()
-            .join(format!("{}.json", name))
+        self.layout.profiles_dir().join(format!("{}.json", name))
     }
 }
 

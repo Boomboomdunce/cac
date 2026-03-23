@@ -66,7 +66,10 @@ mod tests {
         let metadata = SidecarSessionMetadata::new("claude", true, "session-1");
         let response = CreateSessionResponse::new(metadata.clone());
         assert_eq!(response.metadata().adapter, "claude");
-        assert_eq!(response.metadata().protocol_version, SIDECAR_PROTOCOL_VERSION);
+        assert_eq!(
+            response.metadata().protocol_version,
+            SIDECAR_PROTOCOL_VERSION
+        );
         assert!(response.metadata().requires_sidecar);
     }
 }

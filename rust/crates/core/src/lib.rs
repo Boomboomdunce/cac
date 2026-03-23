@@ -25,10 +25,7 @@ mod tests {
     fn adapter_policy_overrides_profile_defaults() {
         let merged = PrivacyPolicy::default()
             .with_blocked_host("example.com")
-            .merge(
-                PrivacyPolicy::default()
-                    .with_blocked_host("statsig.anthropic.com"),
-            );
+            .merge(PrivacyPolicy::default().with_blocked_host("statsig.anthropic.com"));
         assert!(merged
             .blocked_hosts()
             .contains(&"statsig.anthropic.com".to_string()));

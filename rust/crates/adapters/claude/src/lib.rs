@@ -20,7 +20,8 @@ pub struct ClaudeAdapter {
 
 impl ClaudeAdapter {
     pub fn new() -> Self {
-        let required_capabilities = CapabilitySet::from([CAPABILITY_NODE_PRELOAD, CAPABILITY_SIDECAR]);
+        let required_capabilities =
+            CapabilitySet::from([CAPABILITY_NODE_PRELOAD, CAPABILITY_SIDECAR]);
         let target_adapter = TargetAdapter::new(
             ADAPTER_NAME,
             required_capabilities,

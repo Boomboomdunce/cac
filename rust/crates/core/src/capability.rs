@@ -65,11 +65,7 @@ impl CapabilitySet {
 
     pub fn difference(&self, other: &Self) -> Self {
         CapabilitySet {
-            inner: self
-                .inner
-                .difference(&other.inner)
-                .cloned()
-                .collect(),
+            inner: self.inner.difference(&other.inner).cloned().collect(),
         }
     }
 

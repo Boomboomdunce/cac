@@ -348,10 +348,7 @@ mod tests {
                 "platform capability support",
                 "node preload support is available",
             ),
-            PlatformDoctorCheck::error(
-                "platform capability support",
-                "sidecar bridge is missing",
-            ),
+            PlatformDoctorCheck::error("platform capability support", "sidecar bridge is missing"),
         ]);
 
         assert_eq!(result.name, "platform capability support");

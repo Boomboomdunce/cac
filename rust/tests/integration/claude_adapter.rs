@@ -65,16 +65,16 @@ fn policy_includes_claude_specific_telemetry_toggles() {
         env.get("DISABLE_ERROR_REPORTING").map(String::as_str),
         Some("1")
     );
-    assert_eq!(env.get("DISABLE_BUG_COMMAND").map(String::as_str), Some("1"));
+    assert_eq!(
+        env.get("DISABLE_BUG_COMMAND").map(String::as_str),
+        Some("1")
+    );
     assert_eq!(
         env.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
             .map(String::as_str),
         Some("1")
     );
-    assert_eq!(
-        env.get("TELEMETRY_DISABLED").map(String::as_str),
-        Some("1")
-    );
+    assert_eq!(env.get("TELEMETRY_DISABLED").map(String::as_str), Some("1"));
     assert_eq!(env.get("DISABLE_TELEMETRY").map(String::as_str), Some("1"));
     assert_eq!(
         env.get("CLAUDE_CODE_ENABLE_TELEMETRY").map(String::as_str),
@@ -125,7 +125,10 @@ console.log(JSON.stringify({{
     assert!(output.status.success(), "{output:?}");
     let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(payload.get("argCount").and_then(Value::as_u64), Some(1));
-    assert_eq!(payload.get("host").and_then(Value::as_str), Some("proxy.test"));
+    assert_eq!(
+        payload.get("host").and_then(Value::as_str),
+        Some("proxy.test")
+    );
     assert_eq!(
         payload.get("servername").and_then(Value::as_str),
         Some("proxy.test")

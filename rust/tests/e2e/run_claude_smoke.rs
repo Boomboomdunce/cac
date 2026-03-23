@@ -3,8 +3,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 fn fixture_fake_claude_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/fake_claude.js")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/fake_claude.js")
 }
 
 #[test]
@@ -50,15 +49,11 @@ fn run_claude_injects_expected_environment() {
         .and_then(Value::as_str)
         .is_some_and(|value| value.contains("--require")));
     assert_eq!(
-        payload
-            .get("ANTHROPIC_BASE_URL")
-            .and_then(Value::as_str),
+        payload.get("ANTHROPIC_BASE_URL").and_then(Value::as_str),
         None
     );
     assert_eq!(
-        payload
-            .get("ANTHROPIC_AUTH_TOKEN")
-            .and_then(Value::as_str),
+        payload.get("ANTHROPIC_AUTH_TOKEN").and_then(Value::as_str),
         None
     );
     assert_eq!(
