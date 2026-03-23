@@ -7,5 +7,7 @@ members = [
   "crates/doctor",
   "crates/sidecar-proto",
   "crates/sidecar",
+  "crates/adapters/claude",
+  "crates/runtime-hooks/node",
 ]
 resolver = "2"

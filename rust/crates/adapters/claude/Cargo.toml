@@ -1,0 +1,9 @@
+[package]
+name = "claude-adapter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+core = { path = "../../../crates/core" }
+runtime-hooks-node = { path = "../../../crates/runtime-hooks/node" }

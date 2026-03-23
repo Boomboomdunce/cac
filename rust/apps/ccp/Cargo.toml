@@ -17,6 +17,7 @@ assert_cmd = "2"
 tempfile = "3"
 predicates = "2"
 sidecar = { path = "../../crates/sidecar" }
+claude-adapter = { path = "../../crates/adapters/claude" }
 
 [[test]]
 name = "cli_profile"
@@ -25,3 +26,7 @@ path = "../../tests/integration/cli_profile.rs"
 [[test]]
 name = "launch_plan"
 path = "../../tests/integration/launch_plan.rs"
+
+[[test]]
+name = "claude_adapter"
+path = "../../tests/integration/claude_adapter.rs"
