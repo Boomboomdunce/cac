@@ -95,6 +95,42 @@ fn ccp_doctor_outputs_json_when_requested() {
 }
 
 #[test]
+fn profile_show_redacts_proxy_credentials() {
+    let temp = tempfile::tempdir().unwrap();
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .args(["profile", "create", "work", "--adapter", "claude"])
+        .assert()
+        .success();
+
+    let profile_file = temp.path().join("profiles/work.json");
+    fs::write(
+        &profile_file,
+        r#"{
+  "name": "work",
+  "adapter": "claude",
+  "policy": {
+    "proxy_url": "https://alice:super-secret@proxy.example:8443"
+  }
+}"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .args(["profile", "show", "work"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("https://alice:***@proxy.example:8443"));
+    assert!(!stdout.contains("super-secret"));
+}
+
+#[test]
 fn ccp_doctor_rejects_unsupported_adapter() {
     let temp = tempfile::tempdir().unwrap();
     Command::cargo_bin("ccp")

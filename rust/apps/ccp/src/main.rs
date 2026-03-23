@@ -130,7 +130,7 @@ fn profile_command_handler(store: &ProfileStore, command: ProfileCommand) -> Res
         }
         ProfileCommand::Show { name } => {
             let profile = store.load_profile(&name).context("loading profile")?;
-            let json = serde_json::to_string_pretty(&profile)?;
+            let json = serde_json::to_string_pretty(&profile.redacted())?;
             println!("{json}");
             Ok(())
         }

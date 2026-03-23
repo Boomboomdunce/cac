@@ -1,3 +1,4 @@
+use core::redact_sensitive_text;
 use serde::Serialize;
 use std::fmt;
 
@@ -59,7 +60,7 @@ impl CheckResult {
         CheckResult {
             name: name.into(),
             status: CheckStatus::Ok,
-            message: message.into(),
+            message: sanitize_message(message.into()),
         }
     }
 
@@ -67,7 +68,7 @@ impl CheckResult {
         CheckResult {
             name: name.into(),
             status: CheckStatus::Warning,
-            message: message.into(),
+            message: sanitize_message(message.into()),
         }
     }
 
@@ -75,9 +76,13 @@ impl CheckResult {
         CheckResult {
             name: name.into(),
             status: CheckStatus::Error,
-            message: message.into(),
+            message: sanitize_message(message.into()),
         }
     }
+}
+
+fn sanitize_message(message: Option<String>) -> Option<String> {
+    message.map(|value| redact_sensitive_text(&value))
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -95,5 +100,23 @@ impl fmt::Display for CheckStatus {
             CheckStatus::Warning => write!(f, "WARNING"),
             CheckStatus::Error => write!(f, "ERROR"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn json_serialization_redacts_proxy_credentials_in_messages() {
+        let mut report = DoctorReport::new();
+        report.add_check(CheckResult::ok(
+            "proxy check",
+            Some("using proxy https://alice:super-secret@proxy.example:8443".to_string()),
+        ));
+
+        let rendered = serde_json::to_string(&report).expect("report should serialize");
+        assert!(rendered.contains("https://alice:***@proxy.example:8443"));
+        assert!(!rendered.contains("super-secret"));
     }
 }

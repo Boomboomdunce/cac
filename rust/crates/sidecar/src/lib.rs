@@ -5,4 +5,4 @@ pub use sidecar_proto::{
     CreateSessionRequest, CreateSessionResponse, SidecarSessionMetadata, SIDECAR_PROTOCOL_VERSION,
 };
 pub use server::{SidecarError, SidecarServer};
-pub use session::SidecarSession;
+pub use session::{PublicSessionAuditEvent, SessionAuditEvent, SidecarSession};

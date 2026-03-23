@@ -7,8 +7,8 @@ mod profile;
 pub use adapter::TargetAdapter;
 pub use capability::{CapabilitySet, PlatformDoctorCheck};
 pub use launch_plan::{LaunchPlan, LaunchPlanError};
-pub use policy::PrivacyPolicy;
-pub use profile::Profile;
+pub use policy::{redact_proxy_url, redact_sensitive_text, PrivacyPolicy, RedactedPrivacyPolicy};
+pub use profile::{Profile, RedactedProfile};
 
 #[cfg(test)]
 mod tests {

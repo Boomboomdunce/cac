@@ -78,6 +78,27 @@ fn claude_launch_plan_normalizes_injected_session_metadata() {
 }
 
 #[test]
+fn launch_plan_debug_redacts_proxy_credentials() {
+    let profile = Profile::new(
+        "claude-profile",
+        "claude",
+        PrivacyPolicy::default().with_proxy_url("https://alice:super-secret@proxy.example:8443"),
+    );
+    let adapter = TargetAdapter::new(
+        profile.adapter.clone(),
+        CapabilitySet::new(),
+        CapabilitySet::new(),
+        PrivacyPolicy::default(),
+    );
+
+    let plan = core::LaunchPlan::new(profile, adapter).expect("failed to build launch plan");
+    let debug = format!("{plan:?}");
+
+    assert!(debug.contains("https://alice:***@proxy.example:8443"));
+    assert!(!debug.contains("super-secret"));
+}
+
+#[test]
 fn launcher_refuses_when_required_capabilities_are_missing() {
     let profile = Profile::new("claude-profile", "claude", PrivacyPolicy::default());
     let adapter = TargetAdapter::new(
