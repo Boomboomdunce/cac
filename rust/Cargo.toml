@@ -1,0 +1,5 @@
+[workspace]
+members = [
+  "apps/ccp",
+]
+resolver = "2"
