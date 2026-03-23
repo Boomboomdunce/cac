@@ -1,5 +1,6 @@
 [workspace]
 members = [
   "apps/ccp",
+  "crates/core",
 ]
 resolver = "2"
