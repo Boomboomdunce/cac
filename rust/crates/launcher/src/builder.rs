@@ -1,5 +1,6 @@
 use crate::{env_plan::EnvPlan, session::Session};
 use core::{LaunchPlan, LaunchPlanError, Profile, TargetAdapter};
+use sidecar::{CreateSessionRequest, SidecarError, SidecarServer};
 use std::fmt;
 
 #[derive(Clone, Debug)]
@@ -67,7 +68,18 @@ impl LaunchPlanBuilder {
         }
 
         let plan = LaunchPlan::new(profile, adapter).map_err(LaunchError::Plan)?;
-        let session = self.session.unwrap_or_else(Session::placeholder);
+        let adapter_name = plan.adapter_identity().to_string();
+        let requires_sidecar = requires_sidecar_for_adapter(adapter_name.as_str());
+        let session = match self.session {
+            Some(session) => normalize_session(session, adapter_name.as_str(), requires_sidecar),
+            None => {
+                let request = CreateSessionRequest::new(adapter_name.clone(), requires_sidecar);
+                let response = SidecarServer::new()
+                    .create_session(request)
+                    .map_err(LaunchError::Sidecar)?;
+                Session::from_metadata(response.metadata().clone())
+            }
+        };
 
         Ok(LaunchPlanExecution {
             plan,
@@ -92,6 +104,7 @@ pub enum LaunchError {
     MissingAdapter,
     MissingCommand,
     Plan(LaunchPlanError),
+    Sidecar(SidecarError),
     Execution(std::io::Error),
 }
 
@@ -102,6 +115,7 @@ impl fmt::Display for LaunchError {
             LaunchError::MissingAdapter => write!(f, "missing adapter for launch plan"),
             LaunchError::MissingCommand => write!(f, "missing command to launch"),
             LaunchError::Plan(err) => write!(f, "{}", err),
+            LaunchError::Sidecar(err) => write!(f, "{}", err),
             LaunchError::Execution(err) => write!(f, "failed to execute command: {}", err),
         }
     }
@@ -111,6 +125,7 @@ impl std::error::Error for LaunchError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             LaunchError::Plan(err) => Some(err),
+            LaunchError::Sidecar(err) => Some(err),
             LaunchError::Execution(err) => Some(err),
             _ => None,
         }
@@ -127,4 +142,19 @@ impl From<std::io::Error> for LaunchError {
     fn from(err: std::io::Error) -> Self {
         LaunchError::Execution(err)
     }
+}
+
+fn requires_sidecar_for_adapter(adapter_name: &str) -> bool {
+    adapter_name.eq_ignore_ascii_case("claude")
+}
+
+fn normalize_session(
+    mut session: Session,
+    adapter_name: &str,
+    requires_sidecar: bool,
+) -> Session {
+    session.adapter = adapter_name.to_string();
+    session.sidecar_required |= requires_sidecar;
+    session.protocol_version = sidecar::SIDECAR_PROTOCOL_VERSION;
+    session
 }

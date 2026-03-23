@@ -5,5 +5,7 @@ members = [
   "crates/store",
   "crates/launcher",
   "crates/doctor",
+  "crates/sidecar-proto",
+  "crates/sidecar",
 ]
 resolver = "2"

@@ -16,6 +16,7 @@ launcher = { path = "../../crates/launcher" }
 assert_cmd = "2"
 tempfile = "3"
 predicates = "2"
+sidecar = { path = "../../crates/sidecar" }
 
 [[test]]
 name = "cli_profile"

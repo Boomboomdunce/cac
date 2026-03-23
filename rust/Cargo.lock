@@ -117,6 +117,7 @@ dependencies = [
  "launcher",
  "predicates 2.1.5",
  "serde_json",
+ "sidecar",
  "store",
  "tempfile",
 ]
@@ -317,6 +318,7 @@ name = "launcher"
 version = "0.1.0"
 dependencies = [
  "core",
+ "sidecar",
 ]
 
 [[package]]
@@ -540,6 +542,20 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "sidecar"
+version = "0.1.0"
+dependencies = [
+ "sidecar-proto",
+]
+
+[[package]]
+name = "sidecar-proto"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
