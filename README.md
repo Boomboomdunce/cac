@@ -48,6 +48,16 @@ Claude Code 在运行过程中会读取并上报设备标识符（硬件 UUID、
 
 所有 `claude` 调用（含 Agent 子进程）均通过 wrapper 拦截。零入侵 Claude Code 源代码。
 
+### Rust 重构状态
+
+仓库中已经新增 `rust/` 工作区，用于承载新的通用“命令隐私包装器”实现，`claude` 是第一个适配器。当前 Rust 版本已经可以完成这些核心路径：
+
+- `cargo run -p ccp -- profile create work --adapter claude`
+- `cargo run -p ccp -- doctor --profile work`
+- `cargo run -p ccp -- run --profile work -- claude`
+
+当前默认安装和日常使用路径仍然是顶层 Bash 版 `cac`。`rust/` 目录是迁移中的新实现，用于并行验证跨 macOS、Linux、Windows 的统一架构、能力模型、sidecar 协议和 Claude 适配器。
+
 ### 安装
 
 > ⚠️ **请只选择其中一种方式，切勿同时安装！**
@@ -197,6 +207,16 @@ Claude Code reads and reports device identifiers at runtime (hardware UUID, inst
 | **B** | Local proxy conflict detection | `cac check` detects Clash/TUN conflicts automatically |
 
 All `claude` invocations (including Agent subprocesses) are intercepted. Zero invasion of Claude Code source code.
+
+### Rust Rewrite Status
+
+This repository now also contains a `rust/` workspace for the new universal command privacy wrapper, with `claude` as the first adapter. The Rust path can already cover the core flow:
+
+- `cargo run -p ccp -- profile create work --adapter claude`
+- `cargo run -p ccp -- doctor --profile work`
+- `cargo run -p ccp -- run --profile work -- claude`
+
+The Bash-based `cac` at the repository root is still the default installation and day-to-day path. The Rust workspace is the migration track for the hardened cross-platform architecture, capability model, sidecar protocol, and adapter system.
 
 ### Installation
 

@@ -4,6 +4,8 @@
 
 **Status:** Approved in conversation
 
+**Implementation Plan:** [2026-03-23 Rust Refactor Implementation](../plans/2026-03-23-rust-refactor-implementation.md)
+
 **Scope:** Replace the current Bash-heavy `cac` implementation with a new Rust-based system in a dedicated `rust/` subtree. The new system should become a general-purpose command privacy wrapper, with `claude` as the first adapter.
 
 ## Summary
