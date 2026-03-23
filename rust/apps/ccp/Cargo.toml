@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+claude-adapter = { path = "../../crates/adapters/claude" }
 core = { path = "../../crates/core" }
 doctor = { path = "../../crates/doctor" }
 serde_json = "1"
@@ -30,3 +31,7 @@ path = "../../tests/integration/launch_plan.rs"
 [[test]]
 name = "claude_adapter"
 path = "../../tests/integration/claude_adapter.rs"
+
+[[test]]
+name = "run_claude_smoke"
+path = "../../tests/e2e/run_claude_smoke.rs"

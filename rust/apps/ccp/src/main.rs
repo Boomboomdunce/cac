@@ -1,9 +1,13 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use claude_adapter::{claude_adapter, ADAPTER_NAME};
 use core::{CapabilitySet, PrivacyPolicy, Profile, TargetAdapter};
 use doctor::DoctorConfig;
-use launcher::{builder::LaunchPlanBuilder, exec};
-use std::{env, path::PathBuf, process};
+use launcher::{
+    builder::{AdapterLaunchPolicy, LaunchPlanBuilder},
+    exec,
+};
+use std::{env, fs, path::PathBuf, process};
 use store::{ProfileStore, StateLayout};
 
 #[cfg(unix)]
@@ -142,19 +146,15 @@ fn profile_command_handler(store: &ProfileStore, command: ProfileCommand) -> Res
 
 fn run_command_handler(RunCommand { profile, command }: RunCommand) -> Result<process::ExitStatus> {
     let layout = StateLayout::new(state_root()?).context("initializing CCP state layout")?;
-    let store = ProfileStore::new(layout);
+    let store = ProfileStore::new(layout.clone());
     let profile = store.load_profile(&profile).context("loading profile")?;
-
-    let adapter = TargetAdapter::new(
-        profile.adapter.clone(),
-        CapabilitySet::new(),
-        CapabilitySet::new(),
-        PrivacyPolicy::default(),
-    );
+    let (adapter, adapter_policy) =
+        resolve_adapter_policy(&profile, &layout).context("resolving adapter policy")?;
 
     let plan = LaunchPlanBuilder::new()
         .profile(profile)
         .adapter(adapter)
+        .adapter_policy(adapter_policy)
         .command(command)
         .build()
         .context("building launch plan")?;
@@ -188,4 +188,50 @@ fn state_root() -> Result<PathBuf, std::io::Error> {
     } else {
         env::current_dir().map(|cwd| cwd.join("ccp-state"))
     }
+}
+
+fn resolve_adapter_policy(
+    profile: &Profile,
+    layout: &StateLayout,
+) -> Result<(TargetAdapter, AdapterLaunchPolicy)> {
+    if profile.adapter.eq_ignore_ascii_case(ADAPTER_NAME) {
+        let adapter = claude_adapter();
+        let runtime_hook = materialize_runtime_hook(
+            layout.hooks_dir().join("claude-preload.js"),
+            adapter.runtime_hook_bundle().contents(),
+        )
+        .context("materializing Claude runtime hook")?;
+
+        let mut policy = AdapterLaunchPolicy::new().with_runtime_hook_path(runtime_hook);
+        for (key, value) in adapter.environment_overrides() {
+            policy = policy.with_env_override(key.clone(), value.clone());
+        }
+        for key in adapter.environment_unsets() {
+            policy = policy.with_env_unset(key.clone());
+        }
+
+        Ok((adapter.target_adapter().clone(), policy))
+    } else {
+        Ok((
+            TargetAdapter::new(
+                profile.adapter.clone(),
+                CapabilitySet::new(),
+                CapabilitySet::new(),
+                PrivacyPolicy::default(),
+            ),
+            AdapterLaunchPolicy::new(),
+        ))
+    }
+}
+
+fn materialize_runtime_hook(path: PathBuf, contents: &str) -> Result<PathBuf> {
+    fs::write(&path, contents).with_context(|| format!("writing runtime hook to {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path)?.permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&path, permissions)?;
+    }
+    Ok(path)
 }

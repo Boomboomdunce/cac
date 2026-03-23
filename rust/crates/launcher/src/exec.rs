@@ -10,6 +10,9 @@ pub fn execute(execution: &LaunchPlanExecution) -> Result<ExitStatus, LaunchErro
 
     let mut cmd = Command::new(program);
     cmd.args(command_iter);
+    for key in execution.env_plan.removals() {
+        cmd.env_remove(key);
+    }
     for (key, value) in execution.env_plan.iter() {
         cmd.env(key, value);
     }

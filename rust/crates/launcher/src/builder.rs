@@ -1,7 +1,39 @@
 use crate::{env_plan::EnvPlan, session::Session};
 use core::{LaunchPlan, LaunchPlanError, Profile, TargetAdapter};
 use sidecar::{CreateSessionRequest, SidecarError, SidecarServer};
-use std::fmt;
+use std::{fmt, path::PathBuf};
+
+#[derive(Clone, Debug, Default)]
+pub struct AdapterLaunchPolicy {
+    env_overrides: Vec<(String, String)>,
+    env_unsets: Vec<String>,
+    runtime_hook_path: Option<PathBuf>,
+}
+
+impl AdapterLaunchPolicy {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_env_override(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        self.env_overrides.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn with_env_unset(mut self, key: impl Into<String>) -> Self {
+        self.env_unsets.push(key.into());
+        self
+    }
+
+    pub fn with_runtime_hook_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.runtime_hook_path = Some(path.into());
+        self
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct LaunchPlanBuilder {
@@ -9,6 +41,7 @@ pub struct LaunchPlanBuilder {
     adapter: Option<TargetAdapter>,
     command: Option<Vec<String>>,
     env_plan: EnvPlan,
+    adapter_policy: AdapterLaunchPolicy,
     session: Option<Session>,
 }
 
@@ -19,6 +52,7 @@ impl Default for LaunchPlanBuilder {
             adapter: None,
             command: None,
             env_plan: EnvPlan::new(),
+            adapter_policy: AdapterLaunchPolicy::new(),
             session: None,
         }
     }
@@ -54,12 +88,17 @@ impl LaunchPlanBuilder {
         self
     }
 
+    pub fn adapter_policy(mut self, policy: AdapterLaunchPolicy) -> Self {
+        self.adapter_policy = policy;
+        self
+    }
+
     pub fn session(mut self, session: Session) -> Self {
         self.session = Some(session);
         self
     }
 
-    pub fn build(self) -> Result<LaunchPlanExecution, LaunchError> {
+    pub fn build(mut self) -> Result<LaunchPlanExecution, LaunchError> {
         let profile = self.profile.ok_or(LaunchError::MissingProfile)?;
         let adapter = self.adapter.ok_or(LaunchError::MissingAdapter)?;
         let command = self.command.ok_or(LaunchError::MissingCommand)?;
@@ -80,6 +119,31 @@ impl LaunchPlanBuilder {
                 Session::from_metadata(response.metadata().clone())
             }
         };
+
+        self.env_plan.insert("CCP_SESSION_ID", session.id.clone());
+
+        for key in self.adapter_policy.env_unsets {
+            self.env_plan.unset(key);
+        }
+
+        for (key, value) in self.adapter_policy.env_overrides {
+            self.env_plan.insert(key, value);
+        }
+
+        if let Some(runtime_hook_path) = self.adapter_policy.runtime_hook_path {
+            let runtime_hook_value = runtime_hook_path.display().to_string();
+            self.env_plan
+                .insert("CCP_RUNTIME_HOOK", runtime_hook_value.clone());
+            let existing_node_options = self
+                .env_plan
+                .latest_value("NODE_OPTIONS")
+                .map(str::to_owned)
+                .or_else(|| std::env::var("NODE_OPTIONS").ok());
+            self.env_plan.insert(
+                "NODE_OPTIONS",
+                compose_node_options(existing_node_options.as_deref(), runtime_hook_value.as_str()),
+            );
+        }
 
         Ok(LaunchPlanExecution {
             plan,
@@ -157,4 +221,31 @@ fn normalize_session(
     session.sidecar_required |= requires_sidecar;
     session.protocol_version = sidecar::SIDECAR_PROTOCOL_VERSION;
     session
+}
+
+fn compose_node_options(existing: Option<&str>, runtime_hook_path: &str) -> String {
+    let preload_flag = format!("--require={}", quote_node_option_value(runtime_hook_path));
+    let existing = existing
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default();
+
+    if existing.is_empty() {
+        return preload_flag;
+    }
+
+    if existing.contains(runtime_hook_path) {
+        return existing.to_string();
+    }
+
+    format!("{existing} {preload_flag}")
+}
+
+fn quote_node_option_value(value: &str) -> String {
+    if !value.contains(char::is_whitespace) && !value.contains('"') {
+        return value.to_string();
+    }
+
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
 }
