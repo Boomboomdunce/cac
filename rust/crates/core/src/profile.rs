@@ -1,6 +1,7 @@
 use crate::PrivacyPolicy;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Profile {
     pub name: String,
     pub adapter: String,

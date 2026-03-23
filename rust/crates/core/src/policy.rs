@@ -1,7 +1,9 @@
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PrivacyPolicy {
+    #[serde(default)]
     blocked_hosts: BTreeSet<String>,
 }
 
