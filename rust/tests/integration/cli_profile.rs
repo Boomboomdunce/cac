@@ -104,13 +104,20 @@ fn ccp_doctor_rejects_unsupported_adapter() {
         .assert()
         .success();
 
-    Command::cargo_bin("ccp")
+    let output = Command::cargo_bin("ccp")
         .unwrap()
         .env("CCP_STATE_ROOT", temp.path())
         .args(["doctor", "--profile", "work"])
-        .assert()
-        .failure()
-        .stdout(predicate::str::contains("unsupported adapter"));
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("unsupported adapter"));
+    assert!(
+        !stdout.contains("platform capability support: OK"),
+        "doctor should not report platform capability support as OK for an unsupported adapter"
+    );
 }
 
 #[test]

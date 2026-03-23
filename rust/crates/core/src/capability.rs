@@ -10,6 +10,31 @@ const CURRENT_PLATFORM_IDENTITY: &str = "windows";
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 const CURRENT_PLATFORM_IDENTITY: &str = "unknown";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlatformDoctorCheck {
+    pub name: String,
+    pub ok: bool,
+    pub message: String,
+}
+
+impl PlatformDoctorCheck {
+    pub fn ok(name: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ok: true,
+            message: message.into(),
+        }
+    }
+
+    pub fn error(name: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ok: false,
+            message: message.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CapabilitySet {
     inner: BTreeSet<String>,

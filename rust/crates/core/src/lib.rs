@@ -5,7 +5,7 @@ mod policy;
 mod profile;
 
 pub use adapter::TargetAdapter;
-pub use capability::CapabilitySet;
+pub use capability::{CapabilitySet, PlatformDoctorCheck};
 pub use launch_plan::{LaunchPlan, LaunchPlanError};
 pub use policy::PrivacyPolicy;
 pub use profile::Profile;

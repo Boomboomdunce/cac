@@ -6,3 +6,12 @@ edition = "2021"
 [dependencies]
 core = { path = "../../crates/core" }
 sidecar = { path = "../../crates/sidecar" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+platform-macos = { path = "../../crates/platform-macos" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+platform-linux = { path = "../../crates/platform-linux" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+platform-windows = { path = "../../crates/platform-windows" }

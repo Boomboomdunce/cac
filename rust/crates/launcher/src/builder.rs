@@ -108,12 +108,12 @@ impl LaunchPlanBuilder {
 
         let plan = LaunchPlan::new(profile, adapter).map_err(LaunchError::Plan)?;
         let adapter_name = plan.adapter_identity().to_string();
-        let provided_capabilities = core::CapabilitySet::current_platform_capabilities();
+        let provided_capabilities = current_platform_capabilities();
         let missing_capabilities = plan.required_capabilities().difference(&provided_capabilities);
         if !missing_capabilities.is_empty() {
             return Err(LaunchError::MissingRequiredCapabilities {
                 adapter_name,
-                platform: core::CapabilitySet::current_platform_identity().to_string(),
+                platform: current_platform_identity().to_string(),
                 missing_capabilities,
             });
         }
@@ -283,4 +283,34 @@ fn render_capability_set(capabilities: &core::CapabilitySet) -> String {
         .map(|value| value.as_str())
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+#[cfg(target_os = "macos")]
+fn current_platform_identity() -> &'static str {
+    platform_macos::platform_identity()
+}
+
+#[cfg(target_os = "linux")]
+fn current_platform_identity() -> &'static str {
+    platform_linux::platform_identity()
+}
+
+#[cfg(target_os = "windows")]
+fn current_platform_identity() -> &'static str {
+    platform_windows::platform_identity()
+}
+
+#[cfg(target_os = "macos")]
+fn current_platform_capabilities() -> core::CapabilitySet {
+    platform_macos::provided_capabilities()
+}
+
+#[cfg(target_os = "linux")]
+fn current_platform_capabilities() -> core::CapabilitySet {
+    platform_linux::provided_capabilities()
+}
+
+#[cfg(target_os = "windows")]
+fn current_platform_capabilities() -> core::CapabilitySet {
+    platform_windows::provided_capabilities()
 }

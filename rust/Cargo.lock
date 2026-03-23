@@ -201,7 +201,11 @@ name = "doctor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "claude-adapter",
  "core",
+ "platform-linux",
+ "platform-macos",
+ "platform-windows",
  "serde",
  "serde_json",
 ]
@@ -327,6 +331,9 @@ name = "launcher"
 version = "0.1.0"
 dependencies = [
  "core",
+ "platform-linux",
+ "platform-macos",
+ "platform-windows",
  "sidecar",
 ]
 

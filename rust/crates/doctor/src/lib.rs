@@ -34,6 +34,7 @@ pub fn run(config: DoctorConfig) -> DoctorReport {
     report.add_check(checks::profile_existence(&config));
     report.add_check(checks::state_root_layout(&config));
     report.add_check(checks::adapter_resolution(&config));
+    report.add_check(checks::platform_capability_support(&config));
     report.add_check(checks::secret_permission_sanity(&config));
 
     report
