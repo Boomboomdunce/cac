@@ -9,6 +9,7 @@ clap = { version = "4", features = ["derive"] }
 core = { path = "../../crates/core" }
 serde_json = "1"
 store = { path = "../../crates/store" }
+launcher = { path = "../../crates/launcher" }
 
 [dev-dependencies]
 assert_cmd = "2"
@@ -18,3 +19,7 @@ predicates = "2"
 [[test]]
 name = "cli_profile"
 path = "../../tests/integration/cli_profile.rs"
+
+[[test]]
+name = "launch_plan"
+path = "../../tests/integration/launch_plan.rs"

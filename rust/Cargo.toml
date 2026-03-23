@@ -3,5 +3,6 @@ members = [
   "apps/ccp",
   "crates/core",
   "crates/store",
+  "crates/launcher",
 ]
 resolver = "2"

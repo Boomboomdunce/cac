@@ -1,11 +1,20 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use core::{PrivacyPolicy, Profile};
-use std::{env, path::PathBuf};
+use core::{CapabilitySet, PrivacyPolicy, Profile, TargetAdapter};
+use launcher::{builder::LaunchPlanBuilder, exec};
+use std::{env, path::PathBuf, process};
 use store::{ProfileStore, StateLayout};
 
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+
 #[derive(Parser)]
-#[command(name = "ccp", about = "Command Privacy Proxy", version, arg_required_else_help = true)]
+#[command(
+    name = "ccp",
+    about = "Command Privacy Proxy",
+    version,
+    arg_required_else_help = true
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -14,7 +23,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Profile(ProfileGroup),
-    Run,
+    Run(RunCommand),
     Doctor,
 }
 
@@ -35,6 +44,15 @@ enum ProfileCommand {
         name: String,
     },
     List,
+}
+
+#[derive(Parser)]
+#[command(trailing_var_arg = true)]
+struct RunCommand {
+    #[arg(long)]
+    profile: String,
+    #[arg(required = true, num_args = 1..)]
+    command: Vec<String>,
 }
 
 fn main() {
@@ -59,9 +77,13 @@ fn run() -> Result<()> {
                 Ok(())
             }
         }
-        Some(Commands::Run) => {
-            println!("`run` is not implemented yet");
-            Ok(())
+        Some(Commands::Run(run_cmd)) => {
+            let status = run_command_handler(run_cmd).context("running command")?;
+            if status.success() {
+                Ok(())
+            } else {
+                exit_with_status(status);
+            }
         }
         Some(Commands::Doctor) => {
             println!("`doctor` is not implemented yet");
@@ -93,6 +115,48 @@ fn profile_command_handler(store: &ProfileStore, command: ProfileCommand) -> Res
             Ok(())
         }
     }
+}
+
+fn run_command_handler(RunCommand { profile, command }: RunCommand) -> Result<process::ExitStatus> {
+    let layout = StateLayout::new(state_root()?).context("initializing CCP state layout")?;
+    let store = ProfileStore::new(layout);
+    let profile = store.load_profile(&profile).context("loading profile")?;
+
+    let adapter = TargetAdapter::new(
+        profile.adapter.clone(),
+        CapabilitySet::new(),
+        CapabilitySet::new(),
+        PrivacyPolicy::default(),
+    );
+
+    let plan = LaunchPlanBuilder::new()
+        .profile(profile)
+        .adapter(adapter)
+        .command(command)
+        .build()
+        .context("building launch plan")?;
+
+    let status = exec::execute(&plan).context("executing launch plan")?;
+    Ok(status)
+}
+
+#[cfg(unix)]
+fn exit_with_status(status: process::ExitStatus) -> ! {
+    if let Some(code) = status.code() {
+        process::exit(code);
+    }
+    if let Some(signal) = status.signal() {
+        process::exit(128 + signal);
+    }
+    process::exit(1);
+}
+
+#[cfg(not(unix))]
+fn exit_with_status(status: process::ExitStatus) -> ! {
+    if let Some(code) = status.code() {
+        process::exit(code);
+    }
+    process::exit(1);
 }
 
 fn state_root() -> Result<PathBuf, std::io::Error> {
