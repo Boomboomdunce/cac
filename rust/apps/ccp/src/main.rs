@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use core::{CapabilitySet, PrivacyPolicy, Profile, TargetAdapter};
+use doctor::DoctorConfig;
 use launcher::{builder::LaunchPlanBuilder, exec};
 use std::{env, path::PathBuf, process};
 use store::{ProfileStore, StateLayout};
@@ -24,7 +25,7 @@ struct Cli {
 enum Commands {
     Profile(ProfileGroup),
     Run(RunCommand),
-    Doctor,
+    Doctor(DoctorCommand),
 }
 
 #[derive(Parser)]
@@ -53,6 +54,15 @@ struct RunCommand {
     profile: String,
     #[arg(required = true, num_args = 1..)]
     command: Vec<String>,
+}
+
+#[derive(Parser)]
+struct DoctorCommand {
+    #[arg(long)]
+    profile: String,
+
+    #[arg(long)]
+    json: bool,
 }
 
 fn main() {
@@ -85,9 +95,22 @@ fn run() -> Result<()> {
                 exit_with_status(status);
             }
         }
-        Some(Commands::Doctor) => {
-            println!("`doctor` is not implemented yet");
-            Ok(())
+        Some(Commands::Doctor(cmd)) => {
+            let root = state_root().context("determining CCP state root for doctor")?;
+            let report = doctor::run(DoctorConfig::new(root.clone(), cmd.profile));
+
+            if cmd.json {
+                let json = serde_json::to_string_pretty(&report)?;
+                println!("{json}");
+            } else {
+                println!("{}", report.render_human());
+            }
+
+            if report.is_ok() {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("doctor reported failing checks"))
+            }
         }
         None => Ok(()),
     }
