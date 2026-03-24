@@ -21,3 +21,5 @@ hostname = "0.4"
 ccp-core = { package = "core", path = "../../../crates/core" }
 ccp-store = { package = "store", path = "../../../crates/store" }
 ccp-doctor = { package = "doctor", path = "../../../crates/doctor" }
+ccp-sidecar = { package = "sidecar", path = "../../../crates/sidecar" }
+tokio = { version = "1", features = ["full"] }

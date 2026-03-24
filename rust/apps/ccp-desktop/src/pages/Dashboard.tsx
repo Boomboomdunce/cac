@@ -41,6 +41,8 @@ export default function Dashboard() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [identity, setIdentity] = useState<ProfileIdentity | null>(null);
   const [layers, setLayers] = useState<ProtectionLayer[]>([]);
+  const [egressIp, setEgressIp] = useState<string | null>(null);
+  const [egressLoading, setEgressLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,8 +55,17 @@ export default function Dashboard() {
       .catch(() => {});
   };
 
+  const detectIp = () => {
+    setEgressLoading(true);
+    invoke<string>("detect_egress_ip")
+      .then(setEgressIp)
+      .catch(() => setEgressIp(null))
+      .finally(() => setEgressLoading(false));
+  };
+
   useEffect(() => {
     refresh();
+    detectIp();
     const timer = setInterval(refresh, 30000);
     return () => clearInterval(timer);
   }, []);
@@ -102,7 +113,11 @@ export default function Dashboard() {
           value={status?.profile ?? t("status.noProfile")}
           color={status?.profile ? "green" : "gray"}
         />
-        <Card label={t("status.egressIp")} value="--" color="gray" />
+        <Card
+          label={t("status.egressIp")}
+          value={egressLoading ? "..." : egressIp ?? "--"}
+          color={egressIp ? "green" : "gray"}
+        />
         <Card label="Version" value={status?.version ?? "--"} color="gray" />
       </div>
 

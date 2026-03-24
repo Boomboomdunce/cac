@@ -63,10 +63,11 @@
   "traffic": {
     "title": "流量捕获",
     "startCapture": "开始捕获",
-    "pauseCapture": "暂停",
-    "resume": "继续",
+    "stopCapture": "停止捕获",
     "clearCapture": "清空",
     "memory": "内存",
+    "listeningOn": "监听于",
+    "proxyHint": "捕获代理已启动于 127.0.0.1:{{port}}。新启动的 claude 需设置 HTTPS_PROXY=http://127.0.0.1:{{port}} 才能被捕获。",
     "totalRequests": "总请求",
     "allowed": "放行",
     "blocked": "拦截",

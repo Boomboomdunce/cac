@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import RequestDetail from "../components/RequestDetail";
 
@@ -25,7 +27,7 @@ type SortDir = "asc" | "desc";
 export default function TrafficCapture() {
   const { t } = useTranslation();
   const [capturing, setCapturing] = useState(false);
-  const [paused, setPaused] = useState(false);
+  const [proxyPort, setProxyPort] = useState<number | null>(null);
   const [requests, setRequests] = useState<CapturedRequest[]>([]);
   const [selected, setSelected] = useState<CapturedRequest | null>(null);
   const [filter, setFilter] = useState("");
@@ -33,21 +35,62 @@ export default function TrafficCapture() {
   const [sortKey, setSortKey] = useState<SortKey>("id");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; req: CapturedRequest } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const autoScroll = useRef(true);
 
   const memoryMb = (requests.length * 1024) / (1024 * 1024);
 
-  const startCapture = () => { setCapturing(true); setPaused(false); };
-  const pauseCapture = () => setPaused(true);
-  const resumeCapture = () => setPaused(false);
-  const clearCapture = () => { setRequests([]); setSelected(null); };
-
-  // Placeholder: real data will come from Tauri events
+  // Check initial capture status
   useEffect(() => {
-    if (!capturing || paused) return;
-    return () => {};
-  }, [capturing, paused]);
+    invoke<{ running: boolean; port: number | null }>("get_capture_status").then((s) => {
+      setCapturing(s.running);
+      setProxyPort(s.port);
+      if (s.running) {
+        // Load existing captured data
+        invoke<CapturedRequest[]>("get_capture_snapshot").then(setRequests).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Listen for real-time capture events from Tauri backend
+  useEffect(() => {
+    const unlisten = listen<CapturedRequest>("capture-request", (event) => {
+      setRequests((prev) => [...prev, event.payload]);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  const startCapture = async () => {
+    setError(null);
+    try {
+      const port = await invoke<number>("start_capture");
+      setCapturing(true);
+      setProxyPort(port);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const stopCapture = async () => {
+    try {
+      await invoke("stop_capture");
+      setCapturing(false);
+      setProxyPort(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const clearCapture = async () => {
+    try {
+      await invoke("clear_capture_buffer");
+      setRequests([]);
+      setSelected(null);
+    } catch {
+      // ignore
+    }
+  };
 
   // Close context menu on any click
   useEffect(() => {
@@ -140,19 +183,22 @@ export default function TrafficCapture() {
     <div className="flex flex-col h-full">
       <h1 className="text-xl font-semibold mb-4">{t("traffic.title")}</h1>
 
+      {/* Error */}
+      {error && (
+        <div className="mb-3 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
+
       {/* Control Bar */}
       <div className="flex items-center gap-3 mb-3 flex-wrap">
         {!capturing ? (
           <button onClick={startCapture} className="px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700">
             {t("traffic.startCapture")}
           </button>
-        ) : paused ? (
-          <button onClick={resumeCapture} className="px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700">
-            {t("traffic.resume")}
-          </button>
         ) : (
-          <button onClick={pauseCapture} className="px-4 py-1.5 bg-yellow-500 text-white text-sm rounded-lg hover:bg-yellow-600">
-            {t("traffic.pauseCapture")}
+          <button onClick={stopCapture} className="px-4 py-1.5 bg-red-500 text-white text-sm rounded-lg hover:bg-red-600">
+            {t("traffic.stopCapture")}
           </button>
         )}
         <button onClick={clearCapture} disabled={requests.length === 0} className="px-4 py-1.5 bg-gray-200 dark:bg-gray-700 text-sm rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50">
@@ -165,9 +211,21 @@ export default function TrafficCapture() {
         </select>
         <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("traffic.searchPlaceholder")} className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 flex-1 min-w-[200px] focus:ring-2 focus:ring-green-500 outline-none" />
         <div className="text-xs text-gray-400 whitespace-nowrap">
-          {t("traffic.memory")}: {memoryMb.toFixed(1)} MB / 1024 MB
+          {capturing && proxyPort && (
+            <span className="mr-3 text-green-600">
+              {t("traffic.listeningOn")} 127.0.0.1:{proxyPort}
+            </span>
+          )}
+          {t("traffic.memory")}: {memoryMb.toFixed(1)} MB
         </div>
       </div>
+
+      {/* Proxy usage hint */}
+      {capturing && proxyPort && (
+        <div className="mb-3 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-700 dark:text-blue-400">
+          {t("traffic.proxyHint", { port: proxyPort })}
+        </div>
+      )}
 
       {/* Request Table */}
       <div ref={tableRef} onScroll={handleScroll} className="flex-1 min-h-0 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-auto">
@@ -175,13 +233,13 @@ export default function TrafficCapture() {
           <thead className="sticky top-0 bg-gray-50 dark:bg-gray-750 border-b border-gray-200 dark:border-gray-700">
             <tr>
               <SortHeader k="id" className="w-12">#</SortHeader>
-              <SortHeader k="timestamp" className="w-20">{t("traffic.colTime")}</SortHeader>
+              <SortHeader k="timestamp" className="w-24">{t("traffic.colTime")}</SortHeader>
               <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 w-16">{t("traffic.colTool")}</th>
-              <SortHeader k="method" className="w-16">{t("traffic.colMethod")}</SortHeader>
+              <SortHeader k="method" className="w-20">{t("traffic.colMethod")}</SortHeader>
               <SortHeader k="url">{t("traffic.colUrl")}</SortHeader>
               <SortHeader k="status" className="w-16">{t("traffic.colStatus")}</SortHeader>
               <SortHeader k="size" className="w-16 text-right">{t("traffic.colSize")}</SortHeader>
-              <SortHeader k="duration" className="w-16 text-right">{t("traffic.colDuration")}</SortHeader>
+              <SortHeader k="duration" className="w-20 text-right">{t("traffic.colDuration")}</SortHeader>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-gray-700/30">

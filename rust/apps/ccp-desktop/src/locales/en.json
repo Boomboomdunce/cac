@@ -63,10 +63,11 @@
   "traffic": {
     "title": "Traffic Capture",
     "startCapture": "Start Capture",
-    "pauseCapture": "Pause",
-    "resume": "Resume",
+    "stopCapture": "Stop Capture",
     "clearCapture": "Clear",
     "memory": "Memory",
+    "listeningOn": "Listening on",
+    "proxyHint": "Capture proxy running at 127.0.0.1:{{port}}. New claude sessions need HTTPS_PROXY=http://127.0.0.1:{{port}} to be captured.",
     "totalRequests": "Total",
     "allowed": "Allowed",
     "blocked": "Blocked",

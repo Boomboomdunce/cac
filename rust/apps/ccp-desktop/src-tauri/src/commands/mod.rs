@@ -6,7 +6,7 @@ use ccp_core::{PrivacyPolicy, Profile};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-fn state_root() -> PathBuf {
+pub(crate) fn state_root() -> PathBuf {
     std::env::var("CCP_STATE_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
@@ -571,4 +571,100 @@ pub fn save_global_settings(settings: GlobalSettings) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ── Capture Proxy ──
+
+#[tauri::command]
+pub async fn start_capture(
+    state: tauri::State<'_, crate::capture_manager::CaptureState>,
+) -> Result<u16, String> {
+    // Get upstream proxy from active profile
+    let lay = layout()?;
+    let runtime = RuntimeStateStore::new(lay.clone());
+    let profile_name = runtime
+        .active_profile()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No active profile".to_string())?;
+
+    let store = ProfileStore::new(lay);
+    let profile = store.load_profile(&profile_name).map_err(|e| e.to_string())?;
+    let proxy_url = profile
+        .policy
+        .proxy_url()
+        .ok_or_else(|| "Active profile has no proxy configured".to_string())?;
+
+    let upstream = ccp_core::proxy_host_port(proxy_url)
+        .ok_or_else(|| "Cannot parse proxy URL".to_string())?;
+
+    state.start_proxy(upstream, "claude".to_string()).await
+}
+
+#[tauri::command]
+pub async fn stop_capture(
+    state: tauri::State<'_, crate::capture_manager::CaptureState>,
+) -> Result<(), String> {
+    state.stop_proxy().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_capture_status(
+    state: tauri::State<'_, crate::capture_manager::CaptureState>,
+) -> Result<CaptureStatus, String> {
+    Ok(CaptureStatus {
+        running: state.is_running().await,
+        port: state.proxy_port().await,
+    })
+}
+
+#[derive(Serialize)]
+pub struct CaptureStatus {
+    pub running: bool,
+    pub port: Option<u16>,
+}
+
+#[tauri::command]
+pub fn get_capture_snapshot(
+    state: tauri::State<'_, crate::capture_manager::CaptureState>,
+) -> Vec<ccp_sidecar::CapturedRequest> {
+    state.buffer().snapshot()
+}
+
+#[tauri::command]
+pub fn clear_capture_buffer(
+    state: tauri::State<'_, crate::capture_manager::CaptureState>,
+) {
+    state.buffer().clear();
+}
+
+// ── Egress IP ──
+
+#[tauri::command]
+pub async fn detect_egress_ip() -> Result<String, String> {
+    // Try local sidecar port first, then fall back to upstream proxy
+    let lay = layout().map_err(|e| e.to_string())?;
+
+    // Check if sidecar is running
+    let port_file = lay.config_dir().join("sidecar_port");
+    let proxy_addr = if let Ok(port_str) = std::fs::read_to_string(&port_file) {
+        format!("127.0.0.1:{}", port_str.trim())
+    } else {
+        // Fall back to upstream proxy from active profile
+        let runtime = RuntimeStateStore::new(lay.clone());
+        let profile_name = runtime
+            .active_profile()
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "No active profile".to_string())?;
+        let store = ProfileStore::new(lay);
+        let profile = store.load_profile(&profile_name).map_err(|e| e.to_string())?;
+        let proxy_url = profile
+            .policy
+            .proxy_url()
+            .ok_or_else(|| "No proxy configured".to_string())?;
+        ccp_core::proxy_host_port(proxy_url)
+            .ok_or_else(|| "Cannot parse proxy URL".to_string())?
+    };
+
+    ccp_sidecar::detect_egress_ip(&proxy_addr).await
 }

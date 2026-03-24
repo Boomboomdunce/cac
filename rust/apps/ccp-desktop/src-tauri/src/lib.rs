@@ -1,12 +1,26 @@
+mod capture_manager;
 mod commands;
 mod tray;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            // Initialize capture state
+            let capture_state = capture_manager::CaptureState::new();
+            let buffer = capture_state.buffer().clone();
+            app.manage(capture_state);
+
+            // Spawn event forwarder
+            let handle = app.handle().clone();
+            capture_manager::spawn_event_forwarder(handle, buffer);
+
+            // Build tray
             tray::create_tray(app)?;
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -33,6 +47,12 @@ pub fn run() {
             commands::update_profile,
             commands::get_global_settings,
             commands::save_global_settings,
+            commands::start_capture,
+            commands::stop_capture,
+            commands::get_capture_status,
+            commands::get_capture_snapshot,
+            commands::clear_capture_buffer,
+            commands::detect_egress_ip,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
