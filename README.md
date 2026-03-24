@@ -1,14 +1,14 @@
 <div align="center">
 
-# cac — Claude Code Cloak
+# cac
 
-**Privacy Cloak + CLI Proxy for Claude Code**
+**Rust Workspace for Claude Code Privacy Isolation**
 
 **[中文](#中文) | [English](#english)**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey.svg)]()
-[![Shell](https://img.shields.io/badge/Shell-Bash-green.svg)]()
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)]()
+[![Language](https://img.shields.io/badge/Language-Rust-orange.svg)]()
 
 </div>
 
@@ -20,157 +20,215 @@
 
 > **[Switch to English](#english)**
 
-### 为什么需要 cac
+### 为什么这个分支的 cac 是 Rust 版
 
-Claude Code 在运行过程中会读取并上报设备标识符（硬件 UUID、安装 ID、网络出口 IP 等）。cac 通过 wrapper 机制拦截所有 `claude` 调用，在进程层面同时解决两个问题：
+`feat/rust-workspace-foundation` 分支的重点已经不是顶层 Bash wrapper，而是 `rust/` 里的新工作区。这里的核心二进制是 `ccp`，目标是把项目重构为一个通用的“命令隐私代理”：
 
-**A. 隐私隔离** — 每个配置对外呈现独立的设备身份，彻底隔离真实设备指纹。
+- 用独立 profile 隔离 Claude Code 看到的设备身份
+- 在进程启动时注入代理、环境变量硬化、运行时 hook 和 sidecar 会话信息
+- 保留 Claude 适配器能力，同时把整体架构扩展到跨平台、可适配更多命令
 
-**B. CLI 专属代理** — 进程级注入代理，`claude` 流量直连远端代理服务器。无需 Clash / Shadowrocket 等本地代理工具，无需中转，无需起本地服务端。配合静态住宅 IP，获得固定、干净的出口身份。
+当前已经实现的第一个适配器是 `claude`。这个分支里顶层 Bash `cac`、`src/`、`install.sh` 仍然保留在仓库中，主要用于迁移对照；README 以 Rust 工作区的真实用法为准。
 
-### 特性一览
+### 当前真实能力
 
-| | 特性 | 说明 |
+| 分类 | 能力 | 当前状态 |
 |:---|:---|:---|
-| **A** | 硬件 UUID 隔离 | macOS: 拦截 `ioreg` / Linux: 拦截 `machine-id` |
-| **A** | hostname / MAC 隔离 | 拦截 `hostname` 和 `ifconfig` 命令 |
-| **A** | stable_id / userID 隔离 | 切换配置时自动写入独立标识 |
-| **A** | 时区 / 语言伪装 | 根据代理出口地区自动匹配 |
-| **A** | NS 层级遥测拦截 | DNS guard 拦截 `statsig.anthropic.com` 等遥测域名 |
-| **A** | 12 层环境变量保护 | 全面禁用遥测、错误上报、非必要流量 |
-| **A** | fetch 遥测拦截 | 替换原生 fetch，防止绕过 DNS 拦截 |
-| **A** | mTLS 客户端证书 | 自签 CA + 每环境独立客户端证书 |
-| **B** | 进程级代理 | 支持 HTTP/HTTPS/SOCKS5 代理 |
-| **B** | 免本地服务端 | 无需 Clash / Shadowrocket / TUN，CLI 直连 |
-| **B** | 静态住宅 IP 支持 | 配置固定代理 → 固定出口 IP |
-| **B** | 启动前连通检测 | 代理不可达时拒绝启动，真实 IP 零泄漏 |
-| **B** | 本地代理冲突检测 | `cac check` 自动检测 Clash/TUN 冲突 |
+| **Core** | `ccp profile create/activate/show/list/delete` | 已实现 |
+| **Core** | `ccp run` 启动通用命令，`claude` 为首个适配器 | 已实现 |
+| **Core** | `ccp doctor` 人类可读/JSON 诊断 | 已实现 |
+| **Runtime** | 代理注入与启动前 TCP 可达性检查 | 已实现 |
+| **Runtime** | Node preload hook + sidecar session 元数据 | 已实现 |
+| **Privacy** | 遥测环境变量硬化、第三方 Anthropic 端点清理 | 已实现 |
+| **Privacy** | DNS / `net` / `tls` / `fetch` 遥测拦截 | 已实现 |
+| **Identity** | `uuid` / `stable_id` / `user_id` / `machine_id` / `hostname` / `mac_address` / `tz` / `lang` 生成 | 已实现 |
+| **Identity** | Claude 持久身份同步：`statsig.stable_id.*`、`.claude.json.userID` | 已实现 |
+| **Security** | 每 profile mTLS 证书与 CA 材料生成、运行时注入 | 已实现 |
+| **Ops** | `ccp setup` / `ccp uninstall` / `ccp pause` / `ccp resume` | 已实现 |
+| **Platform** | macOS / Linux / Windows 平台能力层与 CI 验证矩阵 | 已实现 |
 
-所有 `claude` 调用（含 Agent 子进程）均通过 wrapper 拦截。零入侵 Claude Code 源代码。
+更细的覆盖情况见 [rust/docs/coverage-matrix.md](rust/docs/coverage-matrix.md)。
 
-### Rust 重构状态
+### 仓库结构
 
-仓库中已经新增 `rust/` 工作区，用于承载新的通用“命令隐私包装器”实现，`claude` 是第一个适配器。当前 Rust 版本已经可以完成这些核心路径：
-
-- `cargo run -p ccp -- profile create work --adapter claude`
-- `cargo run -p ccp -- doctor --profile work`
-- `cargo run -p ccp -- run --profile work -- claude`
-
-当前默认安装和日常使用路径仍然是顶层 Bash 版 `cac`。`rust/` 目录是迁移中的新实现，用于并行验证跨 macOS、Linux、Windows 的统一架构、能力模型、sidecar 协议和 Claude 适配器。
-
-### 安装
-
-> ⚠️ **请只选择其中一种方式，切勿同时安装！**
-
-**方式 A：npm（推荐）**
-
-```bash
-npm install -g claude-cac
-cac setup          # 自动配置 PATH，无需手动修改
+```text
+rust/
+├── apps/ccp/                  # CLI 入口，产出二进制 ccp
+├── crates/core/               # profile / policy / capability / launch plan 基础类型
+├── crates/store/              # 状态目录布局与持久化
+├── crates/launcher/           # 启动计划构建与进程执行
+├── crates/doctor/             # 诊断检查与报告渲染
+├── crates/sidecar-proto/      # sidecar 协议模型
+├── crates/sidecar/            # 会话与审计相关模型
+├── crates/adapters/claude/    # Claude 适配器
+├── crates/runtime-hooks/node/ # Node 运行时 hook 打包
+├── crates/platform-*/         # macOS / Linux / Windows 平台能力实现
+└── tests/                     # integration / e2e 测试
 ```
 
-**方式 B：一键脚本**
+### 前置条件
+
+1. 已安装 Rust 工具链（`cargo` / `rustc` 可用）。
+2. 已安装 Claude Code。
+3. 如果你打算执行 `ccp setup` 生成全局 `claude` wrapper，那么真实的 `claude` 必须已经在 `PATH` 里可被发现。
+4. 如果要通过代理运行，请准备可访问的 HTTP / HTTPS / SOCKS5 代理地址。
+
+### 快速开始
+
+> 默认情况下，`ccp` 把状态写到当前工作目录下的 `./ccp-state`。以下命令如果在 `rust/` 目录内执行，状态目录就是 `rust/ccp-state`。也可以通过 `CCP_STATE_ROOT` 自定义。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nmhjklnm/cac/master/install.sh | bash
+cd rust
+
+# 1. 创建 profile（Claude 适配器）
+cargo run -p ccp -- profile create work --adapter claude --proxy http://127.0.0.1:8080
+
+# 2. 激活 profile
+cargo run -p ccp -- profile activate work
+
+# 3. 做一次诊断
+cargo run -p ccp -- doctor --profile work
+
+# 4. 通过包装层启动 Claude Code
+cargo run -p ccp -- run -- claude
 ```
 
-安装完成后重开终端，或执行 `source ~/.zshrc`。
+如果不传 `--profile`，`ccp run` 会优先使用当前已激活的 profile。
 
-### 卸载
+### Profile 创建方式
+
+最小示例：
 
 ```bash
-cac delete                       # 自动清除数据 + PATH 配置
-npm uninstall -g claude-cac      # npm 用户需额外执行此步
+cd rust
+cargo run -p ccp -- profile create work --adapter claude
 ```
 
-<details>
-<summary>手动卸载</summary>
+带代理：
 
 ```bash
-rm -rf ~/.cac                    # 删除数据目录
-rm -f ~/bin/cac                  # 删除命令（bash 安装）
-# 编辑 ~/.zshrc，移除 # >>> cac ... <<< 标记块
+cd rust
+cargo run -p ccp -- profile create work --adapter claude --proxy http://127.0.0.1:8080
 ```
-</details>
 
-### 使用
+带 Claude provider 参数：
 
 ```bash
-# 添加配置
-cac add us1 1.2.3.4:1080:username:password
-cac add us2 "socks5://username:password@1.2.3.4:1080"
-
-# 切换配置
-cac us1
-
-# 检查状态（含代理冲突检测）
-cac check
-
-# 启动 Claude Code
-claude
+cd rust
+cargo run -p ccp -- profile create work --adapter claude \
+  --base-url https://example.invalid \
+  --auth-token your-token
 ```
 
-首次使用需在 Claude Code 内执行 `/login` 完成账号登录。
+如果创建时没有显式传 `--base-url` / `--auth-token` / `--api-key`，当前实现还会尝试从用户的 `~/.claude/settings.json` 快照 Claude provider 配置。
+
+### 可选安装：生成 `ccp` / `claude` wrapper
+
+如果你不想每次都写 `cargo run -p ccp -- ...`，可以让 Rust 版在用户目录安装 wrapper：
+
+```bash
+cd rust
+cargo run -p ccp -- setup
+```
+
+默认行为：
+
+- 在 `~/bin` 生成 `ccp` 和 `claude` wrapper
+- 自动探测 shell rc 文件（如 `~/.zshrc` / `~/.bashrc`）
+- 追加 `# >>> ccp >>>` 到 `# <<< ccp <<<` 的 PATH 配置块
+
+安装完成后，重新打开终端，或手动重新加载 shell 配置。
+
+卸载：
+
+```bash
+cd rust
+cargo run -p ccp -- uninstall
+```
 
 ### 命令
 
 | 命令 | 说明 |
 |:---|:---|
-| `cac setup` | 首次安装，自动配置 PATH |
-| `cac add <名字> <host:port:u:p>` | 添加配置 |
-| `cac <名字>` | 切换配置 |
-| `cac ls` | 列出所有配置 |
-| `cac check` | 检查代理 + 安全防护 + 冲突检测 |
-| `cac stop` / `cac -c` | 停用 / 恢复保护 |
-| `cac delete` | 卸载（清除数据 + PATH） |
-| `cac -v` | 版本号 + 安装方式 |
+| `ccp version` | 输出版本与安装方式 |
+| `ccp profile create <name> --adapter claude` | 创建 profile |
+| `ccp profile activate <name>` | 激活 profile |
+| `ccp profile show <name>` | 显示 profile（敏感字段会脱敏） |
+| `ccp profile list` | 列出所有 profile，并标记 active / paused 状态 |
+| `ccp profile delete <name>` | 删除 profile 及其状态材料 |
+| `ccp doctor --profile <name>` | 执行诊断检查 |
+| `ccp doctor --profile <name> --json` | 输出 JSON 诊断结果 |
+| `ccp run [--profile <name>] -- <command...>` | 通过隐私包装层运行命令 |
+| `ccp setup [--bin-dir <dir>] [--shell-rc <file>]` | 安装 `ccp` / `claude` wrapper |
+| `ccp uninstall` | 删除 wrapper 和安装记录 |
+| `ccp pause` | 暂停包装层，后续 `run` 直接透传原命令 |
+| `ccp resume` | 恢复包装层 |
 
 ### 工作原理
 
-```
-                cac wrapper (进程级，零入侵源代码)
-                ┌──────────────────────────────────────┐
-  claude ──────►│ 12 层环境变量遥测保护                  │──── 直连远端代理 ────► Anthropic API
-                │ NODE_OPTIONS --require DNS guard     │     (静态住宅 IP)
-                │ PATH 前置 shim（设备指纹隔离）         │
-                │ mTLS 客户端证书注入                    │
-                │ 启动前代理连通性检测                    │
-                └──────────────────────────────────────┘
-                    ↑ dns.lookup / net.connect / fetch 遥测拦截
-                    ↑ macOS: ioreg/hostname/ifconfig shim
-                    ↑ Linux: cat/hostname/ifconfig shim
-```
-
-### 文件结构
-
-```
-~/.cac/
-├── bin/claude            # wrapper（拦截所有 claude 调用）
-├── shim-bin/             # ioreg / hostname / ifconfig / cat shim
-├── cac-dns-guard.js      # NS 层级 DNS 拦截 + mTLS 注入 + fetch 补丁
-├── blocked_hosts         # HOSTALIASES 遥测域名拦截（备用层）
-├── ca/                   # mTLS 自签 CA 证书
-├── real_claude           # 真实 claude 二进制路径
-├── current               # 当前激活的配置名
-└── envs/<name>/
-    ├── proxy             # 代理地址
-    ├── uuid / stable_id / user_id  # 独立身份标识
-    ├── machine_id / hostname / mac_address  # 独立设备指纹
-    ├── client_cert.pem / client_key.pem     # mTLS 客户端证书
-    └── tz / lang         # 时区 / 语言
+```text
+command / claude
+        |
+        v
+      ccp
+        |
+        +--> 读取 active profile / policy / adapter
+        +--> 组装 launch plan
+        +--> 检查平台 capability
+        +--> 检查代理是否可达
+        +--> 注入代理、环境变量硬化、mTLS、identity shim
+        +--> 注入 Node preload hook 与 sidecar session 元数据
+        |
+        v
+   real claude process
 ```
 
-### 注意事项
+对 Claude 适配器，当前 Rust 路径会做这些实际动作：
 
-> **本地代理工具共存**
-> 若同时使用 Clash / Shadowrocket 等 TUN 模式，需为代理服务器 IP 添加 DIRECT 规则。`cac check` 会自动检测冲突并给出修复建议。
+- 设置 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`
+- 清理 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`
+- 设置 `DO_NOT_TRACK`、`OTEL_SDK_DISABLED`、`DISABLE_TELEMETRY` 等硬化变量
+- 注入 Node preload hook，拦截 DNS / `net` / `tls` / `fetch` 遥测路径
+- 生成并注入 mTLS 证书、密钥和 CA
+- 导出隔离后的 `HOSTNAME` / `COMPUTERNAME` / `TZ` / `LANG`
+- 通过平台 shim 隔离 `hostname`、`machine-id`、`ioreg`、`ifconfig` 等查询结果
 
-> **第三方 API 配置**
-> wrapper 启动时自动清除 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`。
+### 状态目录
 
-> **IPv6**
-> 建议在系统层关闭 IPv6，防止真实出口 IPv6 地址被暴露。
+```text
+ccp-state/
+├── profiles/               # profile JSON
+├── identities/<name>/      # uuid / stable_id / user_id / machine_id / hostname / mac_address / tz / lang
+├── certs/                  # CA 与每 profile 的 client cert / key
+├── hooks/                  # 运行时 hook 物料
+├── sessions/               # 启动会话数据
+├── sidecar/                # sidecar 状态
+├── audit/                  # 审计输出
+└── config/                 # install.json / real_claude_path / blocked_hosts 等
+```
+
+### 验证
+
+```bash
+cd rust
+
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test
+```
+
+快速查看 CLI：
+
+```bash
+cd rust
+cargo run -p ccp -- --help
+```
+
+### 迁移说明
+
+- 这个分支的 README 故意以 Rust 工作区为主，不再把 Bash `cac` 当成默认路径来写。
+- 顶层 Bash 实现仍然保留在仓库里，便于对照、迁移和回归验证。
+- 当前真正落地的 adapter 只有 `claude`；更通用的 adapter 生态属于后续扩展，不是这个基础分支的交付重点。
 
 ---
 
@@ -180,135 +238,214 @@ claude
 
 > **[切换到中文](#中文)**
 
-### Why cac
+### Why this branch is Rust-first
 
-Claude Code reads and reports device identifiers at runtime (hardware UUID, installation ID, network egress IP, etc.). cac intercepts all `claude` invocations via a wrapper, solving two problems at the process level — without modifying any Claude Code source code:
+On `feat/rust-workspace-foundation`, the center of gravity is no longer the top-level Bash wrapper. The real implementation target is the `rust/` workspace, where the primary binary is `ccp`.
 
-**A. Privacy Cloak** — Each profile presents an independent device identity, fully isolating your real device fingerprint.
+This branch turns the project into a generic command privacy proxy that:
 
-**B. CLI Proxy** — Process-level proxy injection; `claude` traffic connects directly to the remote proxy server. No Clash / Shadowrocket or any local proxy tools needed.
+- isolates the device identity presented to Claude Code through per-profile state
+- injects proxy settings, environment hardening, runtime hooks, and sidecar session metadata at launch time
+- keeps Claude support as the first adapter while expanding the architecture toward cross-platform, adapter-based execution
 
-### Features
+The first implemented adapter is `claude`. The legacy Bash `cac`, `src/`, and `install.sh` are still kept in the repository for migration reference, but this README documents the real Rust path of this branch.
 
-| | Feature | Description |
+### Current capabilities
+
+| Area | Capability | Status |
 |:---|:---|:---|
-| **A** | Hardware UUID isolation | macOS: intercepts `ioreg` / Linux: intercepts `machine-id` |
-| **A** | hostname / MAC isolation | Intercepts `hostname` and `ifconfig` commands |
-| **A** | stable_id / userID isolation | Writes independent identifiers on profile switch |
-| **A** | Timezone / locale spoofing | Auto-detected from proxy exit region |
-| **A** | NS-level telemetry blocking | DNS guard blocks `statsig.anthropic.com` and other telemetry domains |
-| **A** | 12-layer env var protection | Disables telemetry, error reporting, non-essential traffic |
-| **A** | fetch telemetry interception | Replaces native fetch to prevent DNS interception bypass |
-| **A** | mTLS client certificates | Self-signed CA + per-profile client certificates |
-| **B** | Process-level proxy | Supports HTTP/HTTPS/SOCKS5 proxies |
-| **B** | No local server needed | No Clash / Shadowrocket / TUN — direct CLI connection |
-| **B** | Static residential IP support | Fixed proxy config = fixed egress IP |
-| **B** | Pre-launch connectivity check | Blocks startup if proxy unreachable — zero real IP leakage |
-| **B** | Local proxy conflict detection | `cac check` detects Clash/TUN conflicts automatically |
+| **Core** | `ccp profile create/activate/show/list/delete` | Implemented |
+| **Core** | `ccp run` for generic command launch, with `claude` as the first adapter | Implemented |
+| **Core** | `ccp doctor` in human-readable and JSON modes | Implemented |
+| **Runtime** | proxy injection and pre-launch TCP reachability checks | Implemented |
+| **Runtime** | Node preload hook and sidecar session metadata | Implemented |
+| **Privacy** | telemetry env hardening and third-party Anthropic endpoint unsetting | Implemented |
+| **Privacy** | DNS / `net` / `tls` / `fetch` telemetry interception | Implemented |
+| **Identity** | generation of `uuid`, `stable_id`, `user_id`, `machine_id`, `hostname`, `mac_address`, `tz`, and `lang` | Implemented |
+| **Identity** | Claude persistent identity sync for `statsig.stable_id.*` and `.claude.json.userID` | Implemented |
+| **Security** | per-profile mTLS material generation and runtime injection | Implemented |
+| **Ops** | `ccp setup` / `ccp uninstall` / `ccp pause` / `ccp resume` | Implemented |
+| **Platform** | macOS / Linux / Windows platform layers and CI validation matrix | Implemented |
 
-All `claude` invocations (including Agent subprocesses) are intercepted. Zero invasion of Claude Code source code.
+For a more detailed parity view, see [rust/docs/coverage-matrix.md](rust/docs/coverage-matrix.md).
 
-### Rust Rewrite Status
+### Workspace layout
 
-This repository now also contains a `rust/` workspace for the new universal command privacy wrapper, with `claude` as the first adapter. The Rust path can already cover the core flow:
-
-- `cargo run -p ccp -- profile create work --adapter claude`
-- `cargo run -p ccp -- doctor --profile work`
-- `cargo run -p ccp -- run --profile work -- claude`
-
-The Bash-based `cac` at the repository root is still the default installation and day-to-day path. The Rust workspace is the migration track for the hardened cross-platform architecture, capability model, sidecar protocol, and adapter system.
-
-### Installation
-
-> ⚠️ **Choose only ONE method. Do NOT install both!**
-
-**Option A: npm (recommended)**
-
-```bash
-npm install -g claude-cac
-cac setup          # auto-configures PATH
+```text
+rust/
+├── apps/ccp/                  # CLI entrypoint, builds the ccp binary
+├── crates/core/               # profile / policy / capability / launch plan types
+├── crates/store/              # state-root layout and persistence
+├── crates/launcher/           # launch-plan assembly and process execution
+├── crates/doctor/             # diagnostic checks and report rendering
+├── crates/sidecar-proto/      # sidecar protocol model
+├── crates/sidecar/            # session and audit-facing foundations
+├── crates/adapters/claude/    # Claude adapter
+├── crates/runtime-hooks/node/ # packaged Node runtime hooks
+├── crates/platform-*/         # macOS / Linux / Windows platform providers
+└── tests/                     # integration and e2e tests
 ```
 
-**Option B: One-line script**
+### Prerequisites
+
+1. A working Rust toolchain (`cargo` and `rustc`).
+2. Claude Code installed.
+3. If you plan to run `ccp setup`, the real `claude` executable must already be discoverable in `PATH`.
+4. If you want proxied execution, have a reachable HTTP / HTTPS / SOCKS5 proxy ready.
+
+### Quick start
+
+> By default, `ccp` writes state into `./ccp-state` under the current working directory. If you run the commands below inside `rust/`, your state root will be `rust/ccp-state`. You can override it with `CCP_STATE_ROOT`.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nmhjklnm/cac/master/install.sh | bash
+cd rust
+
+# 1. Create a profile for the Claude adapter
+cargo run -p ccp -- profile create work --adapter claude --proxy http://127.0.0.1:8080
+
+# 2. Activate it
+cargo run -p ccp -- profile activate work
+
+# 3. Run diagnostics
+cargo run -p ccp -- doctor --profile work
+
+# 4. Launch Claude Code through the privacy wrapper
+cargo run -p ccp -- run -- claude
 ```
 
-Restart your terminal or run `source ~/.zshrc` after installation.
+If you omit `--profile`, `ccp run` uses the currently active profile.
 
-### Uninstallation
+### Creating profiles
+
+Minimal example:
 
 ```bash
-cac delete                       # removes all data + PATH entries
-npm uninstall -g claude-cac      # npm users: also run this
+cd rust
+cargo run -p ccp -- profile create work --adapter claude
 ```
 
-<details>
-<summary>Manual uninstall</summary>
+With a proxy:
 
 ```bash
-rm -rf ~/.cac                    # remove data directory
-rm -f ~/bin/cac                  # remove command (bash install)
-# edit ~/.zshrc, remove the # >>> cac ... <<< block
+cd rust
+cargo run -p ccp -- profile create work --adapter claude --proxy http://127.0.0.1:8080
 ```
-</details>
 
-### Usage
+With explicit Claude provider settings:
 
 ```bash
-cac add us1 1.2.3.4:1080:username:password
-cac us1
-cac check    # includes proxy conflict detection
-claude
+cd rust
+cargo run -p ccp -- profile create work --adapter claude \
+  --base-url https://example.invalid \
+  --auth-token your-token
 ```
 
-On first use, run `/login` inside Claude Code to authenticate.
+If `--base-url`, `--auth-token`, or `--api-key` are not passed explicitly, the current implementation also attempts to snapshot Claude provider settings from `~/.claude/settings.json`.
+
+### Optional install: generate `ccp` / `claude` wrappers
+
+If you do not want to keep using `cargo run -p ccp -- ...`, the Rust path can install user-level wrappers:
+
+```bash
+cd rust
+cargo run -p ccp -- setup
+```
+
+By default this will:
+
+- generate `ccp` and `claude` wrappers in `~/bin`
+- detect a shell rc file such as `~/.zshrc` or `~/.bashrc`
+- append a PATH block delimited by `# >>> ccp >>>` and `# <<< ccp <<<`
+
+After setup, reopen the terminal or reload your shell config.
+
+Uninstall:
+
+```bash
+cd rust
+cargo run -p ccp -- uninstall
+```
 
 ### Commands
 
 | Command | Description |
 |:---|:---|
-| `cac setup` | First-time setup, auto-configures PATH |
-| `cac add <name> <host:port:u:p>` | Add profile |
-| `cac <name>` | Switch profile |
-| `cac ls` | List all profiles |
-| `cac check` | Check proxy + security + conflict detection |
-| `cac stop` / `cac -c` | Disable / re-enable protection |
-| `cac delete` | Uninstall (removes data + PATH) |
-| `cac -v` | Version + installation method |
+| `ccp version` | Print version and install method |
+| `ccp profile create <name> --adapter claude` | Create a profile |
+| `ccp profile activate <name>` | Activate a profile |
+| `ccp profile show <name>` | Show a profile with sensitive fields redacted |
+| `ccp profile list` | List profiles and mark active / paused state |
+| `ccp profile delete <name>` | Delete a profile and its persisted materials |
+| `ccp doctor --profile <name>` | Run diagnostics |
+| `ccp doctor --profile <name> --json` | Emit JSON diagnostics |
+| `ccp run [--profile <name>] -- <command...>` | Run a command through the privacy wrapper |
+| `ccp setup [--bin-dir <dir>] [--shell-rc <file>]` | Install `ccp` / `claude` wrappers |
+| `ccp uninstall` | Remove generated wrappers and install metadata |
+| `ccp pause` | Pause the wrapper so future `run` calls pass through directly |
+| `ccp resume` | Resume wrapper behavior |
 
-### How It Works
+### How it works
 
+```text
+command / claude
+        |
+        v
+      ccp
+        |
+        +--> loads active profile / policy / adapter
+        +--> builds a launch plan
+        +--> checks platform capabilities
+        +--> verifies proxy reachability
+        +--> injects proxy, env hardening, mTLS, and identity shims
+        +--> attaches Node preload hooks and sidecar session metadata
+        |
+        v
+   real claude process
 ```
-                cac wrapper (process-level, zero source invasion)
-                ┌──────────────────────────────────────┐
-  claude ──────►│ 12-layer env var telemetry protection │──── Direct to remote ────► Anthropic API
-                │ NODE_OPTIONS --require DNS guard      │     (static residential)
-                │ PATH-prepended shims (fingerprint)    │
-                │ mTLS client cert injection            │
-                │ Pre-flight proxy check                │
-                └──────────────────────────────────────┘
-                    ↑ dns.lookup / net.connect / fetch telemetry interception
-                    ↑ macOS: ioreg/hostname/ifconfig shim
-                    ↑ Linux: cat/hostname/ifconfig shim
+
+For the Claude adapter, the current Rust path actually does the following:
+
+- sets `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`
+- unsets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_API_KEY`
+- sets hardening variables such as `DO_NOT_TRACK`, `OTEL_SDK_DISABLED`, and `DISABLE_TELEMETRY`
+- injects a Node preload hook that intercepts DNS / `net` / `tls` / `fetch` telemetry paths
+- generates and injects mTLS cert, key, and CA materials
+- exports isolated `HOSTNAME`, `COMPUTERNAME`, `TZ`, and `LANG`
+- isolates hostname and device-identification lookups through platform shims such as `hostname`, `machine-id`, `ioreg`, and `ifconfig`
+
+### State root
+
+```text
+ccp-state/
+├── profiles/               # profile JSON
+├── identities/<name>/      # uuid / stable_id / user_id / machine_id / hostname / mac_address / tz / lang
+├── certs/                  # CA plus per-profile client cert / key
+├── hooks/                  # runtime hook assets
+├── sessions/               # launch-session data
+├── sidecar/                # sidecar state
+├── audit/                  # audit outputs
+└── config/                 # install.json / real_claude_path / blocked_hosts and related files
 ```
 
-### Notes
+### Verification
 
-> **Coexisting with local proxy tools**
-> If you also use Clash / Shadowrocket in TUN mode, add a DIRECT rule for the proxy server IP. `cac check` will detect conflicts and provide fix suggestions.
+```bash
+cd rust
 
-> **Third-party API configuration**
-> The wrapper automatically clears `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` on startup.
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test
+```
 
-> **IPv6**
-> It is recommended to disable IPv6 at the system level to prevent your real IPv6 egress address from being exposed.
+Quick CLI smoke check:
 
----
+```bash
+cd rust
+cargo run -p ccp -- --help
+```
 
-<div align="center">
+### Migration notes
 
-MIT License
-
-</div>
+- This branch intentionally documents the Rust workspace as the primary path.
+- The top-level Bash implementation is still present for comparison, migration, and regression checks.
+- `claude` is the only fully implemented adapter today; broader adapter expansion is future product work, not the goal of this foundation branch.
