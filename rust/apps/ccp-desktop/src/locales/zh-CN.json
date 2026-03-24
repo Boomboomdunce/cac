@@ -1,17 +1,11 @@
 {
-  "app": {
-    "title": "CCP Desktop"
-  },
+  "app": { "title": "CCP Desktop" },
   "nav": {
     "dashboard": "仪表盘",
     "traffic": "流量捕获",
     "settings": "运维管理"
   },
-  "common": {
-    "cancel": "取消",
-    "save": "保存",
-    "close": "关闭"
-  },
+  "common": { "cancel": "取消", "save": "保存", "close": "关闭" },
   "status": {
     "running": "运行中",
     "stopped": "已停止",
@@ -24,6 +18,7 @@
   },
   "dashboard": {
     "title": "仪表盘",
+    "refresh": "刷新",
     "proxiedTools": "已代理工具",
     "noToolsRunning": "尚无被代理的工具运行中。使用终端启动 claude 即可自动保护。",
     "protectionLayers": "隐私防护层状态"
@@ -38,6 +33,7 @@
     "details": "详情",
     "switchTo": "切换",
     "delete": "删除",
+    "edit": "编辑",
     "active": "当前",
     "empty": "暂无配置，点击「新建配置」添加",
     "certValid": "证书有效",
@@ -47,7 +43,12 @@
     "exportFull": "完整导出",
     "exportRedacted": "脱敏导出",
     "exportTemplate": "模板导出",
-    "importPlaceholder": "粘贴 .ccp-profile.json 内容..."
+    "importPlaceholder": "粘贴 .ccp-profile.json 内容...",
+    "copyAll": "复制全部",
+    "copied": "已复制",
+    "testProxy": "测试连通性",
+    "proxyReachable": "代理可达",
+    "proxyUnreachable": "代理不通"
   },
   "diagnostics": {
     "run": "运行诊断",
@@ -82,7 +83,10 @@
     "colSize": "大小",
     "colDuration": "耗时",
     "waitingForRequests": "捕获中，等待请求...",
-    "startCaptureHint": "点击「开始捕获」以记录流量"
+    "startCaptureHint": "点击「开始捕获」以记录流量",
+    "copyUrl": "复制 URL",
+    "copyCurl": "复制 cURL",
+    "copyJson": "复制 JSON"
   },
   "detail": {
     "requestHeaders": "请求头",
@@ -96,7 +100,8 @@
     "privacyDesc": "以下展示本次请求中隐私字段替换前后的对比：",
     "field": "字段",
     "realValue": "真实值",
-    "protectedValue": "保护后值"
+    "protectedValue": "保护后值",
+    "fieldsReplaced": "本次请求中 {{count}} 个隐私字段已被替换"
   },
   "settings": {
     "title": "运维管理",
@@ -104,6 +109,13 @@
     "diagnostics": "诊断",
     "global": "全局设置",
     "language": "语言",
-    "captureMemoryLimit": "捕获内存上限"
+    "languageDesc": "界面显示语言",
+    "captureMemoryLimit": "捕获内存上限",
+    "captureMemoryDesc": "流量捕获数据最大内存占用",
+    "autoStart": "开机自启",
+    "autoStartDesc": "登录时自动启动 CCP Desktop",
+    "logLevel": "日志级别",
+    "logLevelDesc": "用于排查问题",
+    "stateRoot": "状态目录"
   }
 }

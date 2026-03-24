@@ -1,17 +1,11 @@
 {
-  "app": {
-    "title": "CCP Desktop"
-  },
+  "app": { "title": "CCP Desktop" },
   "nav": {
     "dashboard": "Dashboard",
     "traffic": "Traffic Capture",
     "settings": "Settings"
   },
-  "common": {
-    "cancel": "Cancel",
-    "save": "Save",
-    "close": "Close"
-  },
+  "common": { "cancel": "Cancel", "save": "Save", "close": "Close" },
   "status": {
     "running": "Running",
     "stopped": "Stopped",
@@ -24,6 +18,7 @@
   },
   "dashboard": {
     "title": "Dashboard",
+    "refresh": "Refresh",
     "proxiedTools": "Proxied Tools",
     "noToolsRunning": "No proxied tools running. Start claude from terminal to enable protection.",
     "protectionLayers": "Privacy Protection Layers"
@@ -38,6 +33,7 @@
     "details": "Details",
     "switchTo": "Switch",
     "delete": "Delete",
+    "edit": "Edit",
     "active": "Active",
     "empty": "No profiles yet. Click \"New Profile\" to create one.",
     "certValid": "Certificate valid",
@@ -47,7 +43,12 @@
     "exportFull": "Full Export",
     "exportRedacted": "Redacted Export",
     "exportTemplate": "Template Export",
-    "importPlaceholder": "Paste .ccp-profile.json content..."
+    "importPlaceholder": "Paste .ccp-profile.json content...",
+    "copyAll": "Copy All",
+    "copied": "Copied!",
+    "testProxy": "Test Connectivity",
+    "proxyReachable": "Proxy reachable",
+    "proxyUnreachable": "Proxy unreachable"
   },
   "diagnostics": {
     "run": "Run Diagnostics",
@@ -82,7 +83,10 @@
     "colSize": "Size",
     "colDuration": "Duration",
     "waitingForRequests": "Capturing, waiting for requests...",
-    "startCaptureHint": "Click \"Start Capture\" to begin recording traffic"
+    "startCaptureHint": "Click \"Start Capture\" to begin recording traffic",
+    "copyUrl": "Copy URL",
+    "copyCurl": "Copy as cURL",
+    "copyJson": "Copy as JSON"
   },
   "detail": {
     "requestHeaders": "Req Headers",
@@ -96,7 +100,8 @@
     "privacyDesc": "Comparison of privacy-related fields before and after protection:",
     "field": "Field",
     "realValue": "Real Value",
-    "protectedValue": "Protected Value"
+    "protectedValue": "Protected Value",
+    "fieldsReplaced": "{{count}} privacy fields replaced in this request"
   },
   "settings": {
     "title": "Settings",
@@ -104,6 +109,13 @@
     "diagnostics": "Diagnostics",
     "global": "Global Settings",
     "language": "Language",
-    "captureMemoryLimit": "Capture Memory Limit"
+    "languageDesc": "Interface display language",
+    "captureMemoryLimit": "Capture Memory Limit",
+    "captureMemoryDesc": "Max memory for traffic capture data",
+    "autoStart": "Launch at Login",
+    "autoStartDesc": "Auto-start CCP Desktop on login",
+    "logLevel": "Log Level",
+    "logLevelDesc": "For troubleshooting",
+    "stateRoot": "State Directory"
   }
 }

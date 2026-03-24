@@ -310,3 +310,265 @@ pub fn get_cert_info(name: String) -> Result<CertInfo, String> {
         ca_exists: material.ca_cert.is_file(),
     })
 }
+
+// ── Proxy Test ──
+
+#[derive(Serialize)]
+pub struct ProxyTestResult {
+    pub reachable: bool,
+    pub latency_ms: Option<u64>,
+    pub egress_ip: Option<String>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn test_proxy(proxy_url: String) -> ProxyTestResult {
+    use std::net::TcpStream;
+    use std::time::{Duration, Instant};
+
+    let host_port = ccp_core::proxy_host_port(&proxy_url);
+    let Some(hp) = host_port else {
+        return ProxyTestResult {
+            reachable: false,
+            latency_ms: None,
+            egress_ip: None,
+            error: Some("Invalid proxy URL format".to_string()),
+        };
+    };
+
+    let start = Instant::now();
+    match TcpStream::connect_timeout(
+        &hp.parse().unwrap_or_else(|_| ([0, 0, 0, 0], 0).into()),
+        Duration::from_secs(5),
+    ) {
+        Ok(_) => {
+            let latency = start.elapsed().as_millis() as u64;
+            ProxyTestResult {
+                reachable: true,
+                latency_ms: Some(latency),
+                egress_ip: None, // Would need a real HTTP request through proxy
+                error: None,
+            }
+        }
+        Err(e) => ProxyTestResult {
+            reachable: false,
+            latency_ms: None,
+            egress_ip: None,
+            error: Some(e.to_string()),
+        },
+    }
+}
+
+// ── Protection Layers ──
+
+#[derive(Serialize)]
+pub struct ProtectionLayer {
+    pub name: String,
+    pub active: bool,
+    pub description: String,
+}
+
+#[tauri::command]
+pub fn get_protection_layers() -> Result<Vec<ProtectionLayer>, String> {
+    let layout = layout()?;
+    let runtime = RuntimeStateStore::new(layout.clone());
+    let active_profile = runtime.active_profile().unwrap_or(None);
+    let is_active = active_profile.is_some() && !runtime.is_paused();
+
+    let profile_name = active_profile.as_deref().unwrap_or("");
+
+    let has_identity = if !profile_name.is_empty() {
+        load_profile_identity(&layout, profile_name).is_ok()
+    } else {
+        false
+    };
+
+    let has_cert = if !profile_name.is_empty() {
+        let mat = certificate_material(&layout, profile_name);
+        mat.client_cert.is_file() && mat.client_key.is_file()
+    } else {
+        false
+    };
+
+    let has_proxy = if !profile_name.is_empty() {
+        let store = ProfileStore::new(layout.clone());
+        store
+            .load_profile(profile_name)
+            .ok()
+            .and_then(|p| p.policy.proxy_url().map(|_| true))
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    let dns_guard_exists = layout.hooks_dir().join("claude-preload.js").is_file();
+
+    Ok(vec![
+        ProtectionLayer {
+            name: "proxy_injection".to_string(),
+            active: is_active && has_proxy,
+            description: if has_proxy {
+                "HTTPS_PROXY set".to_string()
+            } else {
+                "No proxy configured".to_string()
+            },
+        },
+        ProtectionLayer {
+            name: "dns_telemetry_block".to_string(),
+            active: is_active && dns_guard_exists,
+            description: if dns_guard_exists {
+                "statsig, sentry blocked".to_string()
+            } else {
+                "DNS guard not installed".to_string()
+            },
+        },
+        ProtectionLayer {
+            name: "env_var_protection".to_string(),
+            active: is_active,
+            description: if is_active {
+                "12 layers injected".to_string()
+            } else {
+                "Inactive".to_string()
+            },
+        },
+        ProtectionLayer {
+            name: "device_identity_isolation".to_string(),
+            active: is_active && has_identity,
+            description: if has_identity {
+                "UUID/hostname/MAC replaced".to_string()
+            } else {
+                "Identity not generated".to_string()
+            },
+        },
+        ProtectionLayer {
+            name: "mtls_cert_injection".to_string(),
+            active: is_active && has_cert,
+            description: if has_cert {
+                "Client certificate valid".to_string()
+            } else {
+                "Certificate not generated".to_string()
+            },
+        },
+        ProtectionLayer {
+            name: "fetch_interception".to_string(),
+            active: is_active && dns_guard_exists,
+            description: if dns_guard_exists {
+                "Native fetch patched".to_string()
+            } else {
+                "Preload not installed".to_string()
+            },
+        },
+        ProtectionLayer {
+            name: "ipv6_protection".to_string(),
+            active: false,
+            description: "Check system IPv6 settings".to_string(),
+        },
+    ])
+}
+
+// ── Device Identity (real values for privacy comparison) ──
+
+#[derive(Serialize)]
+pub struct DeviceIdentity {
+    pub hostname: String,
+    pub uuid: String,
+}
+
+#[tauri::command]
+pub fn get_device_identity() -> DeviceIdentity {
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    DeviceIdentity {
+        hostname,
+        uuid: "(protected)".to_string(),
+    }
+}
+
+// ── Update Profile ──
+
+#[derive(Deserialize)]
+pub struct UpdateProfileInput {
+    pub name: String,
+    pub proxy_url: Option<String>,
+    pub timezone: Option<String>,
+    pub language: Option<String>,
+}
+
+#[tauri::command]
+pub fn update_profile(input: UpdateProfileInput) -> Result<(), String> {
+    let layout = layout()?;
+    let store = ProfileStore::new(layout.clone());
+    let mut profile = store.load_profile(&input.name).map_err(|e| e.to_string())?;
+
+    // Rebuild policy with updated proxy
+    let mut policy = PrivacyPolicy::new();
+    if let Some(ref proxy) = input.proxy_url {
+        if !proxy.is_empty() {
+            policy = policy.with_proxy_url(proxy.clone());
+        }
+    }
+    // Preserve blocked hosts from adapter defaults
+    for host in profile.policy.blocked_hosts() {
+        policy = policy.with_blocked_host(host.clone());
+    }
+    profile.policy = policy;
+
+    store.save_profile(&profile).map_err(|e| e.to_string())?;
+
+    // Update timezone/language files if provided
+    let id_mat = ccp_store::identity_material(&layout, &input.name);
+    if let Some(tz) = &input.timezone {
+        if !tz.is_empty() {
+            let _ = std::fs::write(&id_mat.tz, format!("{tz}\n"));
+        }
+    }
+    if let Some(lang) = &input.language {
+        if !lang.is_empty() {
+            let _ = std::fs::write(&id_mat.lang, format!("{lang}\n"));
+        }
+    }
+
+    Ok(())
+}
+
+// ── Global Settings ──
+
+#[derive(Serialize, Deserialize)]
+pub struct GlobalSettings {
+    pub capture_memory_limit_mb: u64,
+    pub auto_start: bool,
+    pub log_level: String,
+    pub language: String,
+}
+
+impl Default for GlobalSettings {
+    fn default() -> Self {
+        Self {
+            capture_memory_limit_mb: 1024,
+            auto_start: false,
+            log_level: "info".to_string(),
+            language: "zh-CN".to_string(),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn get_global_settings() -> Result<GlobalSettings, String> {
+    let layout = layout()?;
+    let path = layout.config_dir().join("gui_settings.json");
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => serde_json::from_str(&contents).map_err(|e| e.to_string()),
+        Err(_) => Ok(GlobalSettings::default()),
+    }
+}
+
+#[tauri::command]
+pub fn save_global_settings(settings: GlobalSettings) -> Result<(), String> {
+    let layout = layout()?;
+    let path = layout.config_dir().join("gui_settings.json");
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}

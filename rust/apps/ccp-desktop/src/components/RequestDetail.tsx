@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import type { CapturedRequest } from "../pages/TrafficCapture";
 
@@ -121,28 +122,53 @@ function BodyView({ body }: { body: string | null }) {
 
 function PrivacyComparison({ request: _request }: { request: CapturedRequest }) {
   const { t } = useTranslation();
+  const [device, setDevice] = useState<{ hostname: string } | null>(null);
+  const [identity, setIdentity] = useState<{
+    uuid: string;
+    hostname: string;
+    mac_address: string;
+    tz: string;
+  } | null>(null);
 
-  // In the real implementation, this will compare request fields against
-  // the real device identity vs the profile's masked identity.
-  // For now, show the concept layout.
+  useEffect(() => {
+    invoke<{ hostname: string; uuid: string }>("get_device_identity").then(setDevice).catch(() => {});
+    invoke<{ profile: string | null }>("get_status").then(async (s) => {
+      if (s.profile) {
+        const id = await invoke<{
+          uuid: string;
+          hostname: string;
+          mac_address: string;
+          tz: string;
+        }>("get_profile_identity", { name: s.profile });
+        setIdentity(id);
+      }
+    }).catch(() => {});
+  }, []);
+
   return (
     <div className="text-sm">
       <p className="text-gray-500 mb-3 font-sans">{t("detail.privacyDesc")}</p>
       <table className="w-full font-sans">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700">
-            <th className="text-left py-1.5 text-xs text-gray-500 w-28">{t("detail.field")}</th>
+            <th className="text-left py-1.5 text-xs text-gray-500 w-32">{t("detail.field")}</th>
             <th className="text-left py-1.5 text-xs text-gray-500">{t("detail.realValue")}</th>
             <th className="text-left py-1.5 text-xs text-gray-500">{t("detail.protectedValue")}</th>
           </tr>
         </thead>
         <tbody className="text-xs">
-          <ComparisonRow field="Machine UUID" real="(hidden)" replaced="A1B2C3D4-..." />
-          <ComparisonRow field="hostname" real="(hidden)" replaced="host-7f3a2b1c" />
-          <ComparisonRow field="MAC" real="(hidden)" replaced="02:3a:4b:5c:6d:7e" />
-          <ComparisonRow field="Egress IP" real="(hidden)" replaced="203.0.113.1" />
+          <ComparisonRow field="Machine UUID" real={device?.hostname ? "(system)" : "--"} replaced={identity?.uuid ?? "--"} />
+          <ComparisonRow field="hostname" real={device?.hostname ?? "--"} replaced={identity?.hostname ?? "--"} />
+          <ComparisonRow field="MAC Address" real="(system)" replaced={identity?.mac_address ?? "--"} />
+          <ComparisonRow field="Timezone" real={Intl.DateTimeFormat().resolvedOptions().timeZone} replaced={identity?.tz ?? "--"} />
+          <ComparisonRow field="Egress IP" real="(direct IP)" replaced="(proxy IP)" />
         </tbody>
       </table>
+      {identity && (
+        <div className="mt-3 text-xs text-green-600 dark:text-green-400 font-sans">
+          {t("detail.fieldsReplaced", { count: 5 })}
+        </div>
+      )}
     </div>
   );
 }

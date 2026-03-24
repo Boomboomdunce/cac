@@ -20,17 +20,43 @@ interface ProfileIdentity {
   lang: string;
 }
 
+interface ProtectionLayer {
+  name: string;
+  active: boolean;
+  description: string;
+}
+
+const LAYER_LABELS: Record<string, { zh: string; en: string }> = {
+  proxy_injection: { zh: "代理注入", en: "Proxy Injection" },
+  dns_telemetry_block: { zh: "DNS 遥测拦截", en: "DNS Telemetry Block" },
+  env_var_protection: { zh: "环境变量保护", en: "Env Var Protection" },
+  device_identity_isolation: { zh: "设备身份隔离", en: "Device Identity Isolation" },
+  mtls_cert_injection: { zh: "mTLS 证书注入", en: "mTLS Cert Injection" },
+  fetch_interception: { zh: "fetch 拦截", en: "Fetch Interception" },
+  ipv6_protection: { zh: "IPv6 防护", en: "IPv6 Protection" },
+};
+
 export default function Dashboard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [identity, setIdentity] = useState<ProfileIdentity | null>(null);
+  const [layers, setLayers] = useState<ProtectionLayer[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refresh = () => {
     invoke<AppStatus>("get_status")
       .then(setStatus)
       .catch((e) => setError(String(e)));
+    invoke<ProtectionLayer[]>("get_protection_layers")
+      .then(setLayers)
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    refresh();
+    const timer = setInterval(refresh, 30000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -46,13 +72,21 @@ export default function Dashboard() {
   const statusColor = status?.active ? "green" : status?.paused ? "yellow" : "gray";
   const statusLabel = status?.active
     ? t("status.running")
-    : status?.paused
-      ? t("status.stopped")
-      : t("status.stopped");
+    : t("status.stopped");
+
+  const isZh = i18n.language.startsWith("zh");
 
   return (
     <div>
-      <h1 className="text-xl font-semibold mb-6">{t("dashboard.title")}</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-semibold">{t("dashboard.title")}</h1>
+        <button
+          onClick={refresh}
+          className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+        >
+          {t("dashboard.refresh")}
+        </button>
+      </div>
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">
@@ -73,20 +107,20 @@ export default function Dashboard() {
       </div>
 
       {/* Current Profile Identity */}
-      {identity && (
-        <section className="mb-8">
-          <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
-            {t("dashboard.proxiedTools")}
-          </h2>
+      <section className="mb-8">
+        <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
+          {t("dashboard.proxiedTools")}
+        </h2>
+        {identity ? (
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
             <button
               onClick={() => setExpanded(!expanded)}
               className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
             >
               <div className="flex items-center gap-3">
-                <span className="w-2 h-2 rounded-full bg-gray-400" />
+                <span className={`w-2 h-2 rounded-full ${status?.active ? "bg-green-500" : "bg-gray-400"}`} />
                 <span className="font-medium">claude</span>
-                <span className="text-gray-400">({t("status.profile")}: {status?.profile})</span>
+                <span className="text-gray-400">({status?.profile})</span>
               </div>
               <svg
                 className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`}
@@ -96,49 +130,61 @@ export default function Dashboard() {
                 <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
               </svg>
             </button>
-
             {expanded && (
               <div className="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
                 <table className="w-full text-sm mt-3">
                   <tbody>
-                    <IdentityRow label="UUID" value={identity.uuid} />
-                    <IdentityRow label="stable_id" value={identity.stable_id} />
-                    <IdentityRow label="user_id" value={identity.user_id} mono />
-                    <IdentityRow label="machine_id" value={identity.machine_id} />
-                    <IdentityRow label="hostname" value={identity.hostname} />
-                    <IdentityRow label="MAC" value={identity.mac_address} />
-                    <IdentityRow label="TZ" value={identity.tz} />
-                    <IdentityRow label="LANG" value={identity.lang} />
+                    <IdRow label="UUID" value={identity.uuid} />
+                    <IdRow label="stable_id" value={identity.stable_id} />
+                    <IdRow label="user_id" value={identity.user_id} mono />
+                    <IdRow label="machine_id" value={identity.machine_id} />
+                    <IdRow label="hostname" value={identity.hostname} />
+                    <IdRow label="MAC" value={identity.mac_address} />
+                    <IdRow label="TZ" value={identity.tz} />
+                    <IdRow label="LANG" value={identity.lang} />
                   </tbody>
                 </table>
               </div>
             )}
           </div>
-        </section>
-      )}
-
-      {!identity && (
-        <section className="mb-8">
-          <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
-            {t("dashboard.proxiedTools")}
-          </h2>
+        ) : (
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-400 text-sm">
             {t("dashboard.noToolsRunning")}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* Protection Layers */}
       <section>
         <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
           {t("dashboard.protectionLayers")}
         </h2>
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-2 text-sm">
-          <ProtectionRow
-            ok={status?.active ?? false}
-            label={t("dashboard.protectionLayers")}
-            desc={status?.active ? "Active" : "Inactive"}
-          />
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-50 dark:divide-gray-700/30">
+          {layers.length === 0 ? (
+            <div className="p-4 text-gray-400 text-sm text-center">--</div>
+          ) : (
+            layers.map((layer) => {
+              const labels = LAYER_LABELS[layer.name];
+              const label = labels ? (isZh ? labels.zh : labels.en) : layer.name;
+              return (
+                <div key={layer.name} className="px-4 py-2.5 flex items-center gap-3">
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                      layer.active
+                        ? "bg-green-500"
+                        : layer.name === "ipv6_protection"
+                          ? "bg-yellow-500"
+                          : "bg-gray-300 dark:bg-gray-600"
+                    }`}
+                  />
+                  <span className="text-sm flex-shrink-0 w-40">{label}</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {layer.description}
+                  </span>
+                </div>
+              );
+            })
+          )}
         </div>
       </section>
     </div>
@@ -171,39 +217,11 @@ function Card({
   );
 }
 
-function IdentityRow({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function IdRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <tr className="border-b border-gray-50 dark:border-gray-700/50 last:border-0">
       <td className="py-1.5 pr-4 text-gray-500 dark:text-gray-400 w-28">{label}</td>
       <td className={`py-1.5 ${mono ? "font-mono text-xs" : ""} break-all`}>{value}</td>
     </tr>
-  );
-}
-
-function ProtectionRow({
-  ok,
-  label,
-  desc,
-}: {
-  ok: boolean;
-  label: string;
-  desc: string;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className={ok ? "text-green-500" : "text-gray-400"}>
-        {ok ? "\u2705" : "\u26AA"}
-      </span>
-      <span>{label}</span>
-      <span className="text-gray-400 ml-auto">{desc}</span>
-    </div>
   );
 }
