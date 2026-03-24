@@ -16,6 +16,7 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+dirs = "6"
 ccp-core = { package = "core", path = "../../../crates/core" }
 ccp-store = { package = "store", path = "../../../crates/store" }
 ccp-doctor = { package = "doctor", path = "../../../crates/doctor" }

@@ -59,6 +59,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
             commands::list_profiles,
+            commands::get_profile_identity,
+            commands::switch_profile,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
