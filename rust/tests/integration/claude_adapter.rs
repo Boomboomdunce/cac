@@ -121,7 +121,12 @@ console.log(JSON.stringify({{
         preload_path()
     );
 
-    let output = Command::new("node").arg("-e").arg(script).output().unwrap();
+    let output = Command::new("node")
+        .env_remove("NODE_OPTIONS")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .unwrap();
     assert!(output.status.success(), "{output:?}");
     let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(payload.get("argCount").and_then(Value::as_u64), Some(1));
@@ -181,7 +186,12 @@ setTimeout(() => {{
         preload_path()
     );
 
-    let output = Command::new("node").arg("-e").arg(script).output().unwrap();
+    let output = Command::new("node")
+        .env_remove("NODE_OPTIONS")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .unwrap();
     assert!(output.status.success(), "{output:?}");
     let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
@@ -223,7 +233,12 @@ setTimeout(() => {{
         preload_path()
     );
 
-    let output = Command::new("node").arg("-e").arg(script).output().unwrap();
+    let output = Command::new("node")
+        .env_remove("NODE_OPTIONS")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .unwrap();
     assert!(output.status.success(), "{output:?}");
     let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
@@ -276,7 +291,12 @@ setTimeout(() => {{
         preload_path()
     );
 
-    let output = Command::new("node").arg("-e").arg(script).output().unwrap();
+    let output = Command::new("node")
+        .env_remove("NODE_OPTIONS")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .unwrap();
     assert!(output.status.success(), "{output:?}");
     let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(

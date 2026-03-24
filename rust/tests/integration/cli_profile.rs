@@ -18,8 +18,10 @@ fn ccp_help_exits_successfully() {
 
 #[test]
 fn ccp_version_subcommand_exits_successfully() {
+    let temp = tempfile::tempdir().unwrap();
     Command::cargo_bin("ccp")
         .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
         .arg("version")
         .assert()
         .success()
