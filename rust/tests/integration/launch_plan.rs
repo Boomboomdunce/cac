@@ -157,6 +157,33 @@ fn run_propagates_exit_code() {
 }
 
 #[test]
+fn run_refuses_to_launch_when_proxy_is_unreachable() {
+    let temp = tempdir().unwrap();
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .args([
+            "profile",
+            "create",
+            "isolated",
+            "--adapter",
+            "claude",
+            "--proxy",
+            "http://127.0.0.1:9",
+        ])
+        .assert()
+        .success();
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .args(["run", "--profile", "isolated", "--", "env"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("proxy"));
+}
+
+#[test]
 fn builder_quotes_runtime_hook_paths_in_node_options() {
     let profile = Profile::new("claude-profile", "claude", PrivacyPolicy::default());
     let adapter = TargetAdapter::new(

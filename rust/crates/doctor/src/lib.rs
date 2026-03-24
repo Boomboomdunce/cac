@@ -35,6 +35,13 @@ pub fn run(config: DoctorConfig) -> DoctorReport {
     report.add_check(checks::state_root_layout(&config));
     report.add_check(checks::adapter_resolution(&config));
     report.add_check(checks::platform_capability_support(&config));
+    report.add_check(checks::identity_materials(&config));
+    report.add_check(checks::mtls_materials(&config));
+    report.add_check(checks::dns_blocking(&config));
+    report.add_check(checks::proxy_reachability(&config));
+    report.add_check(checks::proxy_exit_ip(&config));
+    report.add_check(checks::local_proxy_conflicts(&config));
+    report.add_check(checks::runtime_self_audit(&config));
     report.add_check(checks::secret_permission_sanity(&config));
 
     report

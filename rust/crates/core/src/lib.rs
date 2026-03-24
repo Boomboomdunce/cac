@@ -7,8 +7,13 @@ mod profile;
 pub use adapter::TargetAdapter;
 pub use capability::{CapabilitySet, PlatformDoctorCheck};
 pub use launch_plan::{LaunchPlan, LaunchPlanError};
-pub use policy::{redact_proxy_url, redact_sensitive_text, PrivacyPolicy, RedactedPrivacyPolicy};
-pub use profile::{Profile, RedactedProfile};
+pub use policy::{
+    proxy_host_port, redact_proxy_url, redact_sensitive_text, PrivacyPolicy, RedactedPrivacyPolicy,
+};
+pub use profile::{
+    ClaudeProfileConfig, ClaudeProviderConfig, Profile, RedactedClaudeProfileConfig,
+    RedactedClaudeProviderConfig, RedactedProfile,
+};
 
 #[cfg(test)]
 mod tests {

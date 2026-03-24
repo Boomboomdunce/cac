@@ -7,6 +7,8 @@ pub enum StoreError {
     Serde(serde_json::Error),
     ProfileNotFound(String),
     InvalidProfileName(String),
+    CertGeneration(String),
+    IdentityGeneration(String),
 }
 
 impl fmt::Display for StoreError {
@@ -16,6 +18,12 @@ impl fmt::Display for StoreError {
             StoreError::Serde(err) => write!(f, "serialization error: {err}").map(|_| ()),
             StoreError::ProfileNotFound(name) => write!(f, "profile `{name}` not found"),
             StoreError::InvalidProfileName(name) => write!(f, "invalid profile name `{name}`"),
+            StoreError::CertGeneration(message) => {
+                write!(f, "certificate generation error: {message}")
+            }
+            StoreError::IdentityGeneration(message) => {
+                write!(f, "identity generation error: {message}")
+            }
         }
     }
 }

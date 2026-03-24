@@ -1,7 +1,7 @@
 use crate::{error::StoreError, layout::StateLayout};
 use core::Profile;
 use serde_json;
-use std::fs::{read_dir, File};
+use std::fs::{self, read_dir, File};
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
@@ -13,6 +13,10 @@ pub struct ProfileStore {
 impl ProfileStore {
     pub fn new(layout: StateLayout) -> Self {
         Self { layout }
+    }
+
+    pub fn layout(&self) -> &StateLayout {
+        &self.layout
     }
 
     pub fn save_profile(&self, profile: &Profile) -> Result<PathBuf, StoreError> {
@@ -66,12 +70,25 @@ impl ProfileStore {
         Ok(profiles)
     }
 
+    pub fn delete_profile(&self, name: &str) -> Result<PathBuf, StoreError> {
+        let canonical = canonical_name(name)?;
+        let path = self.profile_path(&canonical);
+        fs::remove_file(&path).map_err(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                StoreError::ProfileNotFound(canonical.clone())
+            } else {
+                StoreError::Io(err)
+            }
+        })?;
+        Ok(path)
+    }
+
     fn profile_path(&self, name: &str) -> PathBuf {
         self.layout.profiles_dir().join(format!("{}.json", name))
     }
 }
 
-fn canonical_name(name: &str) -> Result<String, StoreError> {
+pub fn canonical_name(name: &str) -> Result<String, StoreError> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         return Err(StoreError::InvalidProfileName(name.to_string()));

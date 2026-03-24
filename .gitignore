@@ -4,3 +4,4 @@ node_modules/
 .worktrees/
 rust/target/
 rust/apps/ccp/target/
+rust/ccp-state/

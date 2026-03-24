@@ -1,7 +1,12 @@
 use crate::{env_plan::EnvPlan, session::Session};
-use core::{LaunchPlan, LaunchPlanError, Profile, TargetAdapter};
+use core::{proxy_host_port, LaunchPlan, LaunchPlanError, Profile, TargetAdapter};
 use sidecar::{CreateSessionRequest, SidecarError, SidecarServer};
-use std::{fmt, path::PathBuf};
+use std::{
+    fmt,
+    net::{TcpStream, ToSocketAddrs},
+    path::PathBuf,
+    time::Duration,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct AdapterLaunchPolicy {
@@ -103,6 +108,16 @@ impl LaunchPlanBuilder {
         }
 
         let plan = LaunchPlan::new(profile, adapter).map_err(LaunchError::Plan)?;
+        if let Some(proxy_url) = plan.policy().proxy_url() {
+            let proxy_host = proxy_host_port(proxy_url)
+                .ok_or_else(|| LaunchError::InvalidProxyConfiguration(proxy_url.to_string()))?;
+            verify_proxy_reachability(proxy_host.as_str()).map_err(|err| {
+                LaunchError::ProxyUnreachable {
+                    proxy_host,
+                    source: err,
+                }
+            })?;
+        }
         let adapter_name = plan.adapter_identity().to_string();
         let provided_capabilities = current_platform_capabilities();
         let missing_capabilities = plan
@@ -128,6 +143,13 @@ impl LaunchPlanBuilder {
                 Session::from_metadata(response.metadata().clone())
             }
         };
+
+        if let Some(proxy_url) = plan.policy().proxy_url() {
+            self.env_plan.insert("HTTPS_PROXY", proxy_url);
+            self.env_plan.insert("HTTP_PROXY", proxy_url);
+            self.env_plan.insert("ALL_PROXY", proxy_url);
+            self.env_plan.insert("NO_PROXY", "localhost,127.0.0.1");
+        }
 
         self.env_plan.insert("CCP_SESSION_ID", session.id.clone());
 
@@ -179,6 +201,11 @@ pub enum LaunchError {
     MissingProfile,
     MissingAdapter,
     MissingCommand,
+    InvalidProxyConfiguration(String),
+    ProxyUnreachable {
+        proxy_host: String,
+        source: std::io::Error,
+    },
     MissingRequiredCapabilities {
         adapter_name: String,
         platform: String,
@@ -195,6 +222,12 @@ impl fmt::Display for LaunchError {
             LaunchError::MissingProfile => write!(f, "missing profile for launch plan"),
             LaunchError::MissingAdapter => write!(f, "missing adapter for launch plan"),
             LaunchError::MissingCommand => write!(f, "missing command to launch"),
+            LaunchError::InvalidProxyConfiguration(proxy_url) => {
+                write!(f, "invalid proxy configuration `{}`", proxy_url)
+            }
+            LaunchError::ProxyUnreachable { proxy_host, source } => {
+                write!(f, "proxy `{}` is unreachable: {}", proxy_host, source)
+            }
             LaunchError::MissingRequiredCapabilities {
                 adapter_name,
                 platform,
@@ -219,6 +252,7 @@ impl std::error::Error for LaunchError {
             LaunchError::Plan(err) => Some(err),
             LaunchError::Sidecar(err) => Some(err),
             LaunchError::Execution(err) => Some(err),
+            LaunchError::ProxyUnreachable { source, .. } => Some(source),
             _ => None,
         }
     }
@@ -263,6 +297,23 @@ fn compose_node_options(existing: Option<&str>, runtime_hook_path: &str) -> Stri
     }
 
     format!("{existing} {preload_flag}")
+}
+
+fn verify_proxy_reachability(proxy_host: &str) -> std::io::Result<()> {
+    let addresses = proxy_host.to_socket_addrs()?;
+    let timeout = Duration::from_secs(2);
+    let mut last_error = None;
+
+    for address in addresses {
+        match TcpStream::connect_timeout(&address, timeout) {
+            Ok(_) => return Ok(()),
+            Err(err) => last_error = Some(err),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "no proxy addresses resolved")
+    }))
 }
 
 fn quote_node_option_value(value: &str) -> String {

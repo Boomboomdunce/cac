@@ -147,6 +147,26 @@ pub fn redact_proxy_url(raw: &str) -> String {
     )
 }
 
+pub fn proxy_host_port(raw: &str) -> Option<String> {
+    let scheme_end = raw.find("://").map(|index| index + 3)?;
+
+    let authority_end = raw[scheme_end..]
+        .find(['/', '?', '#'])
+        .map(|index| scheme_end + index)
+        .unwrap_or(raw.len());
+    let authority = &raw[scheme_end..authority_end];
+    let host_port = authority
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(authority);
+
+    if host_port.is_empty() {
+        None
+    } else {
+        Some(host_port.to_string())
+    }
+}
+
 fn find_next_url(raw: &str) -> Option<usize> {
     ["https://", "http://", "socks5://", "socks5h://"]
         .iter()
@@ -179,5 +199,13 @@ mod tests {
 
         assert!(rendered.contains("https://alice:***@proxy.example:8443"));
         assert!(!rendered.contains("secret"));
+    }
+
+    #[test]
+    fn proxy_host_port_strips_scheme_and_credentials() {
+        assert_eq!(
+            proxy_host_port("https://alice:secret@proxy.example:8443"),
+            Some("proxy.example:8443".to_string())
+        );
     }
 }

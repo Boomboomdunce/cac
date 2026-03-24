@@ -1,0 +1,44 @@
+name: Rust CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - feat/**
+  pull_request:
+
+jobs:
+  rust:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: cargo fmt
+        working-directory: rust
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        working-directory: rust
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        working-directory: rust
+        run: cargo test
