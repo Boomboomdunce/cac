@@ -65,9 +65,7 @@ pub fn list_profiles() -> Result<Vec<ProfileSummary>, String> {
     Ok(profiles
         .into_iter()
         .map(|p| {
-            let proxy_url = p.policy.proxy_url().map(|u| {
-                ccp_core::redact_proxy_url(u)
-            });
+            let proxy_url = p.policy.proxy_url().map(ccp_core::redact_proxy_url);
             ProfileSummary {
                 active: active.as_deref() == Some(&p.name),
                 name: p.name,
@@ -221,7 +219,7 @@ pub fn export_profile(name: String, export_type: String) -> Result<String, Strin
         export_type: export_type.clone(),
         name: profile.name,
         proxy_url: match export_type.as_str() {
-            "redacted" => profile.policy.proxy_url().map(|u| ccp_core::redact_proxy_url(u)),
+            "redacted" => profile.policy.proxy_url().map(ccp_core::redact_proxy_url),
             _ => profile.policy.proxy_url().map(String::from),
         },
         adapter: profile.adapter,
