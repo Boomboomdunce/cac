@@ -60,7 +60,14 @@ pub fn run() {
             commands::get_status,
             commands::list_profiles,
             commands::get_profile_identity,
+            commands::create_profile,
+            commands::delete_profile,
             commands::switch_profile,
+            commands::toggle_protection,
+            commands::export_profile,
+            commands::import_profile,
+            commands::run_diagnostics,
+            commands::get_cert_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

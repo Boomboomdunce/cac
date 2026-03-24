@@ -7,6 +7,11 @@
     "traffic": "Traffic Capture",
     "settings": "Settings"
   },
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close"
+  },
   "status": {
     "running": "Running",
     "stopped": "Stopped",
@@ -20,25 +25,85 @@
   "dashboard": {
     "title": "Dashboard",
     "proxiedTools": "Proxied Tools",
-    "noToolsRunning": "No proxied tools running",
+    "noToolsRunning": "No proxied tools running. Start claude from terminal to enable protection.",
     "protectionLayers": "Privacy Protection Layers"
+  },
+  "profiles": {
+    "create": "New Profile",
+    "name": "Profile Name",
+    "proxyAddress": "Proxy Address",
+    "adapter": "Adapter",
+    "timezone": "Timezone",
+    "language": "Language",
+    "details": "Details",
+    "switchTo": "Switch",
+    "delete": "Delete",
+    "active": "Active",
+    "empty": "No profiles yet. Click \"New Profile\" to create one.",
+    "certValid": "Certificate valid",
+    "certMissing": "Certificate not generated",
+    "import": "Import",
+    "export": "Export",
+    "exportFull": "Full Export",
+    "exportRedacted": "Redacted Export",
+    "exportTemplate": "Template Export",
+    "importPlaceholder": "Paste .ccp-profile.json content..."
+  },
+  "diagnostics": {
+    "run": "Run Diagnostics",
+    "running": "Running...",
+    "export": "Export JSON",
+    "forProfile": "Diagnosing profile",
+    "noProfile": "Please select a profile first",
+    "allPassed": "All checks passed",
+    "issuesFound": "Issues found",
+    "passed": "passed"
   },
   "traffic": {
     "title": "Traffic Capture",
     "startCapture": "Start Capture",
     "pauseCapture": "Pause",
+    "resume": "Resume",
     "clearCapture": "Clear",
     "memory": "Memory",
     "totalRequests": "Total",
     "allowed": "Allowed",
     "blocked": "Blocked",
-    "avgLatency": "Avg Latency"
+    "avgLatency": "Avg Latency",
+    "filterAll": "All",
+    "filterAllowed": "Allowed only",
+    "filterBlocked": "Blocked only",
+    "searchPlaceholder": "Search URL...",
+    "colTime": "Time",
+    "colTool": "Tool",
+    "colMethod": "Method",
+    "colUrl": "URL",
+    "colStatus": "Status",
+    "colSize": "Size",
+    "colDuration": "Duration",
+    "waitingForRequests": "Capturing, waiting for requests...",
+    "startCaptureHint": "Click \"Start Capture\" to begin recording traffic"
+  },
+  "detail": {
+    "requestHeaders": "Req Headers",
+    "requestBody": "Req Body",
+    "responseHeaders": "Res Headers",
+    "responseBody": "Res Body",
+    "privacyComparison": "Privacy",
+    "noData": "No data",
+    "blockedTitle": "Request Blocked",
+    "blockedDefault": "This request targets a domain on the telemetry blocklist and was intercepted by DNS guard. No data left the machine.",
+    "privacyDesc": "Comparison of privacy-related fields before and after protection:",
+    "field": "Field",
+    "realValue": "Real Value",
+    "protectedValue": "Protected Value"
   },
   "settings": {
     "title": "Settings",
     "profiles": "Profiles",
     "diagnostics": "Diagnostics",
     "global": "Global Settings",
-    "language": "Language"
+    "language": "Language",
+    "captureMemoryLimit": "Capture Memory Limit"
   }
 }

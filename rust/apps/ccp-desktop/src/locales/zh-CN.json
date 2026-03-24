@@ -7,6 +7,11 @@
     "traffic": "流量捕获",
     "settings": "运维管理"
   },
+  "common": {
+    "cancel": "取消",
+    "save": "保存",
+    "close": "关闭"
+  },
   "status": {
     "running": "运行中",
     "stopped": "已停止",
@@ -20,25 +25,85 @@
   "dashboard": {
     "title": "仪表盘",
     "proxiedTools": "已代理工具",
-    "noToolsRunning": "尚无被代理的工具运行中",
+    "noToolsRunning": "尚无被代理的工具运行中。使用终端启动 claude 即可自动保护。",
     "protectionLayers": "隐私防护层状态"
+  },
+  "profiles": {
+    "create": "新建配置",
+    "name": "配置名称",
+    "proxyAddress": "代理地址",
+    "adapter": "适配工具",
+    "timezone": "时区",
+    "language": "语言",
+    "details": "详情",
+    "switchTo": "切换",
+    "delete": "删除",
+    "active": "当前",
+    "empty": "暂无配置，点击「新建配置」添加",
+    "certValid": "证书有效",
+    "certMissing": "证书未生成",
+    "import": "导入",
+    "export": "导出",
+    "exportFull": "完整导出",
+    "exportRedacted": "脱敏导出",
+    "exportTemplate": "模板导出",
+    "importPlaceholder": "粘贴 .ccp-profile.json 内容..."
+  },
+  "diagnostics": {
+    "run": "运行诊断",
+    "running": "诊断中...",
+    "export": "导出 JSON",
+    "forProfile": "诊断配置",
+    "noProfile": "请先选择一个配置",
+    "allPassed": "所有检查通过",
+    "issuesFound": "发现问题",
+    "passed": "通过"
   },
   "traffic": {
     "title": "流量捕获",
     "startCapture": "开始捕获",
     "pauseCapture": "暂停",
+    "resume": "继续",
     "clearCapture": "清空",
     "memory": "内存",
     "totalRequests": "总请求",
     "allowed": "放行",
     "blocked": "拦截",
-    "avgLatency": "平均延迟"
+    "avgLatency": "平均延迟",
+    "filterAll": "全部",
+    "filterAllowed": "仅放行",
+    "filterBlocked": "仅拦截",
+    "searchPlaceholder": "搜索 URL...",
+    "colTime": "时间",
+    "colTool": "工具",
+    "colMethod": "方法",
+    "colUrl": "URL",
+    "colStatus": "状态",
+    "colSize": "大小",
+    "colDuration": "耗时",
+    "waitingForRequests": "捕获中，等待请求...",
+    "startCaptureHint": "点击「开始捕获」以记录流量"
+  },
+  "detail": {
+    "requestHeaders": "请求头",
+    "requestBody": "请求体",
+    "responseHeaders": "响应头",
+    "responseBody": "响应体",
+    "privacyComparison": "隐私对比",
+    "noData": "无数据",
+    "blockedTitle": "请求已被拦截",
+    "blockedDefault": "该请求目标域名在遥测拦截名单中，已被 DNS guard 拦截。无数据离开本机。",
+    "privacyDesc": "以下展示本次请求中隐私字段替换前后的对比：",
+    "field": "字段",
+    "realValue": "真实值",
+    "protectedValue": "保护后值"
   },
   "settings": {
     "title": "运维管理",
     "profiles": "配置管理",
     "diagnostics": "诊断",
     "global": "全局设置",
-    "language": "语言"
+    "language": "语言",
+    "captureMemoryLimit": "捕获内存上限"
   }
 }
