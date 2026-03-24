@@ -1,0 +1,44 @@
+{
+  "app": {
+    "title": "CCP Desktop"
+  },
+  "nav": {
+    "dashboard": "仪表盘",
+    "traffic": "流量捕获",
+    "settings": "运维管理"
+  },
+  "status": {
+    "running": "运行中",
+    "stopped": "已停止",
+    "error": "异常",
+    "protection": "保护状态",
+    "profile": "当前配置",
+    "egressIp": "出口 IP",
+    "uptime": "运行时长",
+    "noProfile": "未选择配置"
+  },
+  "dashboard": {
+    "title": "仪表盘",
+    "proxiedTools": "已代理工具",
+    "noToolsRunning": "尚无被代理的工具运行中",
+    "protectionLayers": "隐私防护层状态"
+  },
+  "traffic": {
+    "title": "流量捕获",
+    "startCapture": "开始捕获",
+    "pauseCapture": "暂停",
+    "clearCapture": "清空",
+    "memory": "内存",
+    "totalRequests": "总请求",
+    "allowed": "放行",
+    "blocked": "拦截",
+    "avgLatency": "平均延迟"
+  },
+  "settings": {
+    "title": "运维管理",
+    "profiles": "配置管理",
+    "diagnostics": "诊断",
+    "global": "全局设置",
+    "language": "语言"
+  }
+}

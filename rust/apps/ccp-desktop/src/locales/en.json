@@ -1,0 +1,44 @@
+{
+  "app": {
+    "title": "CCP Desktop"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "traffic": "Traffic Capture",
+    "settings": "Settings"
+  },
+  "status": {
+    "running": "Running",
+    "stopped": "Stopped",
+    "error": "Error",
+    "protection": "Protection",
+    "profile": "Profile",
+    "egressIp": "Egress IP",
+    "uptime": "Uptime",
+    "noProfile": "No profile selected"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "proxiedTools": "Proxied Tools",
+    "noToolsRunning": "No proxied tools running",
+    "protectionLayers": "Privacy Protection Layers"
+  },
+  "traffic": {
+    "title": "Traffic Capture",
+    "startCapture": "Start Capture",
+    "pauseCapture": "Pause",
+    "clearCapture": "Clear",
+    "memory": "Memory",
+    "totalRequests": "Total",
+    "allowed": "Allowed",
+    "blocked": "Blocked",
+    "avgLatency": "Avg Latency"
+  },
+  "settings": {
+    "title": "Settings",
+    "profiles": "Profiles",
+    "diagnostics": "Diagnostics",
+    "global": "Global Settings",
+    "language": "Language"
+  }
+}
