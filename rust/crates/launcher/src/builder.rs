@@ -145,9 +145,11 @@ impl LaunchPlanBuilder {
         };
 
         if let Some(proxy_url) = plan.policy().proxy_url() {
-            self.env_plan.insert("HTTPS_PROXY", proxy_url);
-            self.env_plan.insert("HTTP_PROXY", proxy_url);
-            self.env_plan.insert("ALL_PROXY", proxy_url);
+            // Check if GUI sidecar proxy is running — route through it for capture
+            let effective_proxy = detect_sidecar_proxy().unwrap_or_else(|| proxy_url.to_string());
+            self.env_plan.insert("HTTPS_PROXY", &effective_proxy);
+            self.env_plan.insert("HTTP_PROXY", &effective_proxy);
+            self.env_plan.insert("ALL_PROXY", &effective_proxy);
             self.env_plan.insert("NO_PROXY", "localhost,127.0.0.1");
         }
 
@@ -361,4 +363,26 @@ fn current_platform_capabilities() -> core::CapabilitySet {
 #[cfg(target_os = "windows")]
 fn current_platform_capabilities() -> core::CapabilitySet {
     platform_windows::provided_capabilities()
+}
+
+/// Check if the GUI's capture proxy is running by reading the sidecar_port file.
+/// If it is, verify the port is actually listening, then return an HTTP proxy URL.
+fn detect_sidecar_proxy() -> Option<String> {
+    let state_root = std::env::var("CCP_STATE_ROOT")
+        .map(PathBuf::from)
+        .ok()
+        .or_else(|| dirs::home_dir().map(|h| h.join(".ccp-rust")))?;
+    let port_file = state_root.join("config").join("sidecar_port");
+    let port_str = std::fs::read_to_string(&port_file).ok()?;
+    let port: u16 = port_str.trim().parse().ok()?;
+
+    // Quick check that something is actually listening
+    let addr = format!("127.0.0.1:{port}");
+    TcpStream::connect_timeout(
+        &addr.parse().ok()?,
+        Duration::from_millis(200),
+    )
+    .ok()?;
+
+    Some(format!("http://127.0.0.1:{port}"))
 }

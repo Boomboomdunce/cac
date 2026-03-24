@@ -77,9 +77,10 @@ impl CaptureState {
 }
 
 /// Spawn a background task that listens for captured requests and emits Tauri events.
+/// Uses `tauri::async_runtime` so it works inside Tauri's setup callback.
 pub fn spawn_event_forwarder(app: AppHandle, buffer: Arc<CaptureBuffer>) {
     let mut rx = buffer.subscribe();
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(req) => {

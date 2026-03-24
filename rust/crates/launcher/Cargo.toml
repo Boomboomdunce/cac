@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 core = { path = "../../crates/core" }
+dirs = "6"
 sidecar = { path = "../../crates/sidecar" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
