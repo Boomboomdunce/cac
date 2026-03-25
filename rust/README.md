@@ -16,6 +16,7 @@ The workspace already covers these core paths:
 - Apply the Claude adapter, Node preload hook, sidecar session metadata, and capability checks
 - Refuse launch when a configured proxy is unreachable
 - Generate per-profile identity and mTLS materials
+- Generate a separate MITM root CA plus merged Node trust bundle for HTTPS capture
 - Isolate hostname / machine-id / platform UUID at runtime and sync Claude persistent IDs
 - Isolate Windows hostname / machine GUID / platform UUID / MAC lookups through command shims and `COMPUTERNAME`
 - Verify runtime hardening from inside a wrapped live `node` process during `ccp doctor`
@@ -44,12 +45,31 @@ cargo run -p ccp -- profile create work --adapter claude
 cargo run -p ccp -- profile activate work
 cargo run -p ccp -- doctor --profile work
 cargo run -p ccp -- run -- claude
+cargo run -p ccp -- mitm prepare
+cargo run -p ccp -- mitm status
 cargo run -p ccp -- setup
 ```
 
-By default `ccp` stores state under `./ccp-state`. Set `CCP_STATE_ROOT` to point at a different state directory during testing or development.
+By default `ccp` stores state under `~/.ccp-rust`. Set `CCP_STATE_ROOT` to point at a different state directory during testing or development.
 
 `ccp setup` discovers the real `claude`, generates `ccp` and `claude` shims in a user bin directory, and can append that directory to a shell rc file. `ccp uninstall` removes those generated artifacts and the recorded state root.
+
+When Claude is launched through `ccp run` or the installed wrapper, `NODE_EXTRA_CA_CERTS` now points at a merged bundle under `certs/mitm/node_extra_ca_bundle.pem`. That bundle contains both the existing mTLS CA and the local MITM root CA so desktop traffic capture can decrypt HTTPS for Node-based Claude sessions without requiring system-wide trust first.
+
+For non-CCP clients, macOS system trust is managed separately:
+
+- `ccp mitm prepare` generates the MITM root CA and merged Node bundle
+- `ccp mitm status` reports certificate readiness and login-keychain trust state
+- `ccp mitm trust` installs the MITM root into the macOS login keychain
+- `ccp mitm untrust` removes that root from the macOS login keychain
+
+`ccp uninstall` now attempts to remove installed MITM system trust before deleting the state root.
+
+Current HTTPS capture scope is intentionally narrow:
+
+- MITM interception is wired for Claude sessions launched through CCP
+- The sidecar captures HTTP/1.1 request and response bodies with bounded text previews
+- HTTP/2, WebSocket, and system-keychain trust workflows are follow-up work
 
 ## Coverage Status
 

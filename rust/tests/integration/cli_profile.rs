@@ -32,6 +32,115 @@ fn ccp_version_subcommand_exits_successfully() {
 }
 
 #[test]
+fn run_without_profiles_prints_setup_guidance() {
+    let temp = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .args(["run", "--", "env"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("no active profile")
+                .and(predicate::str::contains(
+                    "ccp profile create work --adapter claude --proxy",
+                ))
+                .and(predicate::str::contains("ccp profile activate work"))
+                .and(predicate::str::contains("ccp setup")),
+        );
+}
+
+#[test]
+fn ccp_mitm_prepare_creates_root_ca_and_bundle() {
+    let temp = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .args(["mitm", "prepare"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("prepared MITM capture materials"));
+
+    assert!(temp.path().join("certs/mitm/root_ca.pem").is_file());
+    assert!(temp.path().join("certs/mitm/root_ca_key.pem").is_file());
+    assert!(temp
+        .path()
+        .join("certs/mitm/node_extra_ca_bundle.pem")
+        .is_file());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn ccp_mitm_trust_status_and_untrust_use_security_integration() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let keychain_dir = home.join("Library/Keychains");
+    fs::create_dir_all(&keychain_dir).unwrap();
+    let state_file = temp.path().join("fake-security-cert.pem");
+    let script = write_fake_security_script(temp.path(), &state_file);
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .env("HOME", &home)
+        .env("CCP_SECURITY_BIN", &script)
+        .args(["mitm", "trust"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "trusted in the macOS login keychain",
+        ));
+
+    assert!(state_file.is_file());
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .env("HOME", &home)
+        .env("CCP_SECURITY_BIN", &script)
+        .args(["mitm", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "MITM system trust: MITM root is trusted",
+        ));
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .env("HOME", &home)
+        .env("CCP_SECURITY_BIN", &script)
+        .args(["mitm", "untrust"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not trusted"));
+
+    assert!(!state_file.exists());
+}
+
+#[test]
+fn run_with_proxyless_profile_warns_about_missing_proxy_configuration() {
+    let temp = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .args(["profile", "create", "work", "--adapter", "claude"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", temp.path())
+        .args(["run", "--profile", "work", "--", "env"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("has no proxy configured"));
+}
+
+#[test]
 fn profile_create_writes_profile_to_state_root() {
     let temp = tempfile::tempdir().unwrap();
     Command::cargo_bin("ccp")
@@ -281,6 +390,8 @@ fn ccp_doctor_reports_success_for_existing_profile() {
                 .and(predicate::str::contains("profile existence"))
                 .and(predicate::str::contains("identity materials"))
                 .and(predicate::str::contains("mTLS materials"))
+                .and(predicate::str::contains("MITM materials"))
+                .and(predicate::str::contains("MITM system trust"))
                 .and(predicate::str::contains("proxy exit IP"))
                 .and(predicate::str::contains("runtime self-audit"))
                 .and(predicate::str::contains("runtime live self-audit")),
@@ -801,6 +912,61 @@ fn uninstall_removes_install_artifacts_and_state_root() {
     assert!(!state_root.exists());
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn uninstall_also_removes_installed_mitm_system_trust() {
+    let temp = tempfile::tempdir().unwrap();
+    let fake_bin = temp.path().join("fake-bin");
+    let install_bin = temp.path().join("install-bin");
+    let shell_rc = temp.path().join(".zshrc");
+    let state_root = temp.path().join("state");
+    let home = temp.path().join("home");
+    let keychain_dir = home.join("Library/Keychains");
+    let state_file = temp.path().join("fake-security-cert.pem");
+    fs::create_dir_all(&keychain_dir).unwrap();
+    let script = write_fake_security_script(temp.path(), &state_file);
+    fake_claude_executable(&fake_bin);
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", &state_root)
+        .env("PATH", path_with(std::slice::from_ref(&fake_bin)))
+        .env("HOME", &home)
+        .env("CCP_SECURITY_BIN", &script)
+        .args([
+            "setup",
+            "--bin-dir",
+            install_bin.to_str().unwrap(),
+            "--shell-rc",
+            shell_rc.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", &state_root)
+        .env("HOME", &home)
+        .env("CCP_SECURITY_BIN", &script)
+        .args(["mitm", "trust"])
+        .assert()
+        .success();
+
+    assert!(state_file.is_file());
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", &state_root)
+        .env("HOME", &home)
+        .env("CCP_SECURITY_BIN", &script)
+        .args(["uninstall"])
+        .assert()
+        .success();
+
+    assert!(!state_file.exists());
+    assert!(!state_root.exists());
+}
+
 fn path_with(extra: &[PathBuf]) -> String {
     std::env::join_paths(extra.iter().cloned().chain(std::env::split_paths(
         &std::env::var_os("PATH").unwrap_or_default(),
@@ -863,6 +1029,24 @@ fn one_shot_http_server(body: &'static str) -> HttpFixture {
         stream.flush().unwrap();
     });
     HttpFixture { port, join }
+}
+
+#[cfg(target_os = "macos")]
+fn write_fake_security_script(dir: &Path, state_file: &Path) -> PathBuf {
+    let script = dir.join("fake-security.sh");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/zsh\nset -eu\ncmd=\"$1\"\nshift\nstate=\"{}\"\ncase \"$cmd\" in\n  find-certificate)\n    if [[ -f \"$state\" ]]; then\n      cat \"$state\"\n    fi\n    ;;\n  add-trusted-cert)\n    cert=\"${{@: -1}}\"\n    cp \"$cert\" \"$state\"\n    ;;\n  delete-certificate)\n    rm -f \"$state\"\n    ;;\n  *)\n    echo \"unsupported\" >&2\n    exit 1\n    ;;\nesac\n",
+            state_file.display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = fs::metadata(&script).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script, perms).unwrap();
+    script
 }
 
 fn openssl_stdout(args: &[&str]) -> String {

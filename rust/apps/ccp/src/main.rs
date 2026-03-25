@@ -1,6 +1,5 @@
-mod install;
-
 use anyhow::{Context, Result};
+use ccp::{default_state_root, home_dir, inspect_setup_status, install};
 use clap::{Parser, Subcommand};
 use claude_adapter::{claude_adapter, ADAPTER_NAME};
 use core::{
@@ -17,10 +16,12 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{env, fs, path::PathBuf, process};
 use store::{
-    certificate_material, ensure_profile_certificates, ensure_profile_identity,
-    ensure_profile_identity_seeded, ensure_runtime_shims, load_profile_identity,
-    materialize_blocked_hosts_file, materialize_managed_claude_config,
-    snapshot_user_claude_provider, ProfileStore, StateLayout,
+    certificate_material, ensure_mitm_certificates, ensure_profile_certificates,
+    ensure_profile_identity, ensure_profile_identity_seeded, ensure_runtime_shims,
+    install_mitm_system_trust, load_profile_identity, materialize_blocked_hosts_file,
+    materialize_managed_claude_config, mitm_certificate_material, mitm_system_trust_status,
+    remove_mitm_system_trust, snapshot_user_claude_provider, MitmCertificateMaterial, ProfileStore,
+    StateLayout,
 };
 
 #[cfg(unix)]
@@ -44,6 +45,7 @@ enum Commands {
     Profile(ProfileGroup),
     Run(RunCommand),
     Doctor(DoctorCommand),
+    Mitm(MitmGroup),
     Setup(SetupCommand),
     Uninstall,
     Pause,
@@ -99,6 +101,20 @@ struct DoctorCommand {
 
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Parser)]
+struct MitmGroup {
+    #[command(subcommand)]
+    command: Option<MitmCommand>,
+}
+
+#[derive(Subcommand)]
+enum MitmCommand {
+    Prepare,
+    Status,
+    Trust,
+    Untrust,
 }
 
 #[derive(Parser)]
@@ -167,6 +183,14 @@ fn run() -> Result<()> {
                 Ok(())
             } else {
                 Err(anyhow::anyhow!("doctor reported failing checks"))
+            }
+        }
+        Some(Commands::Mitm(group)) => {
+            if let Some(command) = group.command {
+                mitm_command_handler(command)
+            } else {
+                println!("mitm command expected");
+                Ok(())
             }
         }
         Some(Commands::Setup(cmd)) => setup_command_handler(cmd),
@@ -291,6 +315,7 @@ fn run_command_handler(RunCommand { profile, command }: RunCommand) -> Result<pr
     let layout = StateLayout::new(state_root()?).context("initializing CCP state layout")?;
     let store = ProfileStore::new(layout.clone());
     let runtime_state = store::RuntimeStateStore::new(layout.clone());
+    let setup_status = inspect_setup_status(layout.root());
 
     if runtime_state.is_paused() {
         return execute_unwrapped(&command).context("executing command while paused");
@@ -301,14 +326,18 @@ fn run_command_handler(RunCommand { profile, command }: RunCommand) -> Result<pr
         None => runtime_state
             .active_profile()
             .context("loading active profile state")?
-            .ok_or_else(|| {
-                anyhow::anyhow!("no active profile; use --profile or `ccp profile activate <name>`")
-            })?,
+            .ok_or_else(|| anyhow::anyhow!(render_no_active_profile_guidance(&setup_status)))?,
     };
 
     let profile = store
         .load_profile(&profile_name)
         .context("loading profile")?;
+    if profile.policy.proxy_url().is_none() {
+        eprintln!(
+            "warning: profile '{}' has no proxy configured; traffic capture and proxy-based protections will be inactive. Recreate the profile with `ccp profile create <new-name> --adapter claude --proxy http://host:port` or use CCP Desktop to edit it.",
+            profile_name
+        );
+    }
     let (adapter, adapter_policy) =
         resolve_adapter_policy(&profile, &layout).context("resolving adapter policy")?;
 
@@ -332,6 +361,44 @@ fn pause_command_handler() -> Result<()> {
         .context("marking runtime as paused")?;
     println!("privacy wrapper paused");
     Ok(())
+}
+
+fn mitm_command_handler(command: MitmCommand) -> Result<()> {
+    let layout = StateLayout::new(state_root()?).context("initializing CCP state layout")?;
+
+    match command {
+        MitmCommand::Prepare => {
+            let material = ensure_mitm_certificates(&layout).context("preparing MITM materials")?;
+            println!("prepared MITM capture materials");
+            println!("root CA: {}", material.ca_cert.display());
+            println!("node bundle: {}", material.node_ca_bundle.display());
+            Ok(())
+        }
+        MitmCommand::Status => {
+            let material = mitm_certificate_material(&layout);
+            let cert_ready = material.ca_cert.is_file()
+                && material.ca_key.is_file()
+                && material.node_ca_bundle.is_file();
+            let trust = mitm_system_trust_status(&layout).context("checking MITM system trust")?;
+            println!(
+                "MITM certificates: {}",
+                if cert_ready { "ready" } else { "missing" }
+            );
+            println!("MITM system trust: {}", trust.message);
+            Ok(())
+        }
+        MitmCommand::Trust => {
+            let trust =
+                install_mitm_system_trust(&layout).context("installing MITM system trust")?;
+            println!("{}", trust.message);
+            Ok(())
+        }
+        MitmCommand::Untrust => {
+            let trust = remove_mitm_system_trust(&layout).context("removing MITM system trust")?;
+            println!("{}", trust.message);
+            Ok(())
+        }
+    }
 }
 
 fn setup_command_handler(cmd: SetupCommand) -> Result<()> {
@@ -364,6 +431,13 @@ fn setup_command_handler(cmd: SetupCommand) -> Result<()> {
 
 fn uninstall_command_handler() -> Result<()> {
     let root = state_root().context("determining CCP state root for uninstall")?;
+    if root.exists() {
+        if let Ok(layout) = StateLayout::new(root.clone()) {
+            if let Err(err) = remove_mitm_system_trust(&layout) {
+                eprintln!("warning: failed to remove MITM system trust: {err}");
+            }
+        }
+    }
     install::uninstall(&root).context("performing uninstall")?;
     println!("uninstalled ccp artifacts");
     Ok(())
@@ -407,11 +481,7 @@ fn exit_with_status(status: process::ExitStatus) -> ! {
 }
 
 fn state_root() -> Result<PathBuf, std::io::Error> {
-    if let Some(root) = env::var_os("CCP_STATE_ROOT") {
-        Ok(PathBuf::from(root))
-    } else {
-        env::current_dir().map(|cwd| cwd.join("ccp-state"))
-    }
+    default_state_root()
 }
 
 fn version_install_method_label() -> &'static str {
@@ -525,7 +595,10 @@ fn live_audit_check(root: &std::path::Path, profile_name: &str) -> Result<CheckR
     if problems.is_empty() {
         Ok(CheckResult::ok(
             CHECK_NAME,
-            Some("wrapped node launch confirmed env hardening and DNS blocking".to_string()),
+            Some(
+                "wrapped node launch confirmed env hardening, Node proxying, and DNS blocking"
+                    .to_string(),
+            ),
         ))
     } else {
         Ok(CheckResult::error(CHECK_NAME, Some(problems.join("; "))))
@@ -538,11 +611,15 @@ fn resolve_live_audit_adapter_policy(
 ) -> Result<(TargetAdapter, AdapterLaunchPolicy)> {
     let identity = load_profile_identity(layout, &profile.name).context("loading identity")?;
     let cert_material = certificate_material(layout, &profile.name);
+    let mitm_material = store::mitm_certificate_material(layout);
     let missing_certificates = [
         ("CA cert", cert_material.ca_cert.as_path()),
         ("CA key", cert_material.ca_key.as_path()),
         ("client cert", cert_material.client_cert.as_path()),
         ("client key", cert_material.client_key.as_path()),
+        ("MITM CA cert", mitm_material.ca_cert.as_path()),
+        ("MITM CA key", mitm_material.ca_key.as_path()),
+        ("Node CA bundle", mitm_material.node_ca_bundle.as_path()),
     ]
     .into_iter()
     .filter_map(|(label, path)| (!path.is_file()).then_some(label))
@@ -580,7 +657,7 @@ fn resolve_live_audit_adapter_policy(
     policy = with_identity_environment(policy, &identity, &shims.dir)
         .context("building identity environment")?;
     policy = policy.with_env_override("HOSTALIASES", blocked_hosts_path.display().to_string());
-    policy = with_mtls_environment(policy, profile, &cert_material);
+    policy = with_mtls_environment(policy, profile, &cert_material, &mitm_material);
 
     Ok((adapter.target_adapter().clone(), policy))
 }
@@ -613,6 +690,7 @@ const dns = require('dns');
 const has = (key) => Object.prototype.hasOwnProperty.call(process.env, key);
 const payload = {
   CLAUDE_CODE_ENABLE_TELEMETRY: has('CLAUDE_CODE_ENABLE_TELEMETRY') ? process.env.CLAUDE_CODE_ENABLE_TELEMETRY : null,
+  NODE_USE_ENV_PROXY: has('NODE_USE_ENV_PROXY') ? process.env.NODE_USE_ENV_PROXY : null,
   DO_NOT_TRACK: has('DO_NOT_TRACK') ? process.env.DO_NOT_TRACK : null,
   OTEL_SDK_DISABLED: has('OTEL_SDK_DISABLED') ? process.env.OTEL_SDK_DISABLED : null,
   OTEL_TRACES_EXPORTER: has('OTEL_TRACES_EXPORTER') ? process.env.OTEL_TRACES_EXPORTER : null,
@@ -644,6 +722,9 @@ fn validate_live_audit_payload(payload: &LiveAuditPayload) -> Vec<String> {
 
     if payload.claude_code_enable_telemetry.as_deref() != Some("") {
         problems.push("CLAUDE_CODE_ENABLE_TELEMETRY is not cleared".to_string());
+    }
+    if payload.node_use_env_proxy.as_deref() != Some("1") {
+        problems.push("NODE_USE_ENV_PROXY is not 1".to_string());
     }
     if payload.do_not_track.as_deref() != Some("1") {
         problems.push("DO_NOT_TRACK is not 1".to_string());
@@ -719,6 +800,8 @@ fn resolve_adapter_policy(
     let identity = load_profile_identity(layout, &profile.name).context("loading identity")?;
     let cert_material = ensure_profile_certificates(layout, &profile.name)
         .context("materializing certificate materials")?;
+    let mitm_material =
+        ensure_mitm_certificates(layout).context("materializing MITM certificate materials")?;
     let shims = ensure_runtime_shims(layout).context("materializing runtime shims")?;
 
     if profile.adapter.eq_ignore_ascii_case(ADAPTER_NAME) {
@@ -745,7 +828,7 @@ fn resolve_adapter_policy(
         policy = with_identity_environment(policy, &identity, &shims.dir)
             .context("building identity environment")?;
         policy = policy.with_env_override("HOSTALIASES", blocked_hosts_path.display().to_string());
-        policy = with_mtls_environment(policy, profile, &cert_material);
+        policy = with_mtls_environment(policy, profile, &cert_material, &mitm_material);
 
         Ok((adapter.target_adapter().clone(), policy))
     } else {
@@ -761,6 +844,7 @@ fn resolve_adapter_policy(
                     .context("building identity environment")?,
                 profile,
                 &cert_material,
+                &mitm_material,
             ),
         ))
     }
@@ -786,6 +870,7 @@ fn with_mtls_environment(
     mut policy: AdapterLaunchPolicy,
     profile: &Profile,
     cert_material: &store::CertificateMaterial,
+    mitm_material: &MitmCertificateMaterial,
 ) -> AdapterLaunchPolicy {
     policy = policy
         .with_env_override(
@@ -808,7 +893,7 @@ fn with_mtls_environment(
         .with_env_override("CAC_MTLS_CA", cert_material.ca_cert.display().to_string())
         .with_env_override(
             "NODE_EXTRA_CA_CERTS",
-            cert_material.ca_cert.display().to_string(),
+            mitm_material.node_ca_bundle.display().to_string(),
         );
 
     if let Some(proxy_url) = profile.policy.proxy_url() {
@@ -928,17 +1013,21 @@ fn sync_claude_json_file(claude_json: &std::path::Path, user_id: &str) -> Result
     Ok(())
 }
 
-fn home_dir() -> Option<PathBuf> {
-    env::var_os("HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("USERPROFILE").map(PathBuf::from))
-        .or_else(|| {
-            let drive = env::var_os("HOMEDRIVE")?;
-            let path = env::var_os("HOMEPATH")?;
-            let mut combined = PathBuf::from(drive);
-            combined.push(path);
-            Some(combined)
-        })
+fn render_no_active_profile_guidance(setup_status: &ccp::SetupStatus) -> String {
+    if setup_status.profiles.is_empty() {
+        let mut guidance = String::from(
+            "no active profile; no profiles are configured yet. Create one with `ccp profile create work --adapter claude --proxy http://host:port`, then activate it with `ccp profile activate work`.",
+        );
+        if !setup_status.wrappers_installed {
+            guidance.push_str(" Install global wrappers with `ccp setup` once you are ready to route `claude` automatically.");
+        }
+        return guidance;
+    }
+
+    let available = setup_status.profiles.join(", ");
+    format!(
+        "no active profile; available profiles: {available}. Activate one with `ccp profile activate <name>` or pass `--profile <name>` to this run."
+    )
 }
 
 fn execute_unwrapped(command: &[String]) -> Result<process::ExitStatus> {
@@ -1038,6 +1127,8 @@ struct GeoResponse {
 struct LiveAuditPayload {
     #[serde(rename = "CLAUDE_CODE_ENABLE_TELEMETRY")]
     claude_code_enable_telemetry: Option<String>,
+    #[serde(rename = "NODE_USE_ENV_PROXY")]
+    node_use_env_proxy: Option<String>,
     #[serde(rename = "DO_NOT_TRACK")]
     do_not_track: Option<String>,
     #[serde(rename = "OTEL_SDK_DISABLED")]
@@ -1209,6 +1300,7 @@ mod tests {
     fn validate_live_audit_payload_flags_missing_legacy_telemetry_guards() {
         let payload = LiveAuditPayload {
             claude_code_enable_telemetry: None,
+            node_use_env_proxy: None,
             do_not_track: Some("1".to_string()),
             otel_sdk_disabled: Some("true".to_string()),
             otel_traces_exporter: None,
@@ -1234,6 +1326,9 @@ mod tests {
         assert!(problems
             .iter()
             .any(|item| item.contains("CLAUDE_CODE_ENABLE_TELEMETRY")));
+        assert!(problems
+            .iter()
+            .any(|item| item.contains("NODE_USE_ENV_PROXY")));
         assert!(problems
             .iter()
             .any(|item| item.contains("OTEL_TRACES_EXPORTER")));

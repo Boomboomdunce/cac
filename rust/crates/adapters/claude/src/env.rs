@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const ENV_OVERRIDES: &[(&str, &str)] = &[
     ("CLAUDE_CODE_ENABLE_TELEMETRY", ""),
+    ("NODE_USE_ENV_PROXY", "1"),
     ("DO_NOT_TRACK", "1"),
     ("OTEL_SDK_DISABLED", "true"),
     ("OTEL_TRACES_EXPORTER", "none"),

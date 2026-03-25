@@ -37,6 +37,8 @@ pub fn run(config: DoctorConfig) -> DoctorReport {
     report.add_check(checks::platform_capability_support(&config));
     report.add_check(checks::identity_materials(&config));
     report.add_check(checks::mtls_materials(&config));
+    report.add_check(checks::mitm_materials(&config));
+    report.add_check(checks::mitm_system_trust(&config));
     report.add_check(checks::dns_blocking(&config));
     report.add_check(checks::proxy_reachability(&config));
     report.add_check(checks::proxy_exit_ip(&config));

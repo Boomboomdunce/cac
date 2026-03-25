@@ -33,6 +33,8 @@ const LAYER_LABELS: Record<string, { zh: string; en: string }> = {
   device_identity_isolation: { zh: "设备身份隔离", en: "Device Identity Isolation" },
   mtls_cert_injection: { zh: "mTLS 证书注入", en: "mTLS Cert Injection" },
   fetch_interception: { zh: "fetch 拦截", en: "Fetch Interception" },
+  https_mitm_capture: { zh: "HTTPS MITM 捕获", en: "HTTPS MITM Capture" },
+  system_cert_trust: { zh: "系统证书信任", en: "System Cert Trust" },
   ipv6_protection: { zh: "IPv6 防护", en: "IPv6 Protection" },
 };
 

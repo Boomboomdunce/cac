@@ -9,6 +9,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 claude-adapter = { path = "../adapters/claude" }
 core = { path = "../core" }
+store = { path = "../store" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "socks"] }
 x509-parser = { version = "0.18", features = ["verify"] }
 

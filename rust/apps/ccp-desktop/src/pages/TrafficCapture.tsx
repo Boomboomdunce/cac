@@ -8,17 +8,31 @@ export interface CapturedRequest {
   id: number;
   timestamp: string;
   tool: string;
+  protocol: string;
+  connection_id: number | null;
+  stream_id: number | null;
   method: string;
   url: string;
   status: number | null;
   size: number;
   duration: number | null;
+  complete: boolean;
+  request_body_truncated: boolean;
+  response_body_truncated: boolean;
   category: "normal" | "blocked" | "telemetry";
   blocked_reason: string | null;
   request_headers: [string, string][];
   request_body: string | null;
   response_headers: [string, string][];
   response_body: string | null;
+}
+
+interface CaptureStatus {
+  running: boolean;
+  port: number | null;
+  backend: string;
+  target: string | null;
+  warning: string | null;
 }
 
 type SortKey = "id" | "timestamp" | "method" | "url" | "status" | "size" | "duration";
@@ -28,6 +42,8 @@ export default function TrafficCapture() {
   const { t } = useTranslation();
   const [capturing, setCapturing] = useState(false);
   const [proxyPort, setProxyPort] = useState<number | null>(null);
+  const [backend, setBackend] = useState<string>("none");
+  const [captureTarget, setCaptureTarget] = useState<string | null>(null);
   const [requests, setRequests] = useState<CapturedRequest[]>([]);
   const [selected, setSelected] = useState<CapturedRequest | null>(null);
   const [filter, setFilter] = useState("");
@@ -36,16 +52,33 @@ export default function TrafficCapture() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; req: CapturedRequest } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const autoScroll = useRef(true);
 
   const memoryMb = (requests.length * 1024) / (1024 * 1024);
 
+  const upsertRequest = useCallback((next: CapturedRequest) => {
+    setRequests((prev) => {
+      const index = prev.findIndex((req) => req.id === next.id);
+      if (index === -1) {
+        return [...prev, next];
+      }
+      const updated = [...prev];
+      updated[index] = next;
+      return updated;
+    });
+    setSelected((prev) => (prev?.id === next.id ? next : prev));
+  }, []);
+
   // Check initial capture status
   useEffect(() => {
-    invoke<{ running: boolean; port: number | null }>("get_capture_status").then((s) => {
+    invoke<CaptureStatus>("get_capture_status").then((s) => {
       setCapturing(s.running);
       setProxyPort(s.port);
+      setBackend(s.backend);
+      setCaptureTarget(s.target);
+      setWarning(s.warning);
       if (s.running) {
         // Load existing captured data
         invoke<CapturedRequest[]>("get_capture_snapshot").then(setRequests).catch(() => {});
@@ -56,17 +89,21 @@ export default function TrafficCapture() {
   // Listen for real-time capture events from Tauri backend
   useEffect(() => {
     const unlisten = listen<CapturedRequest>("capture-request", (event) => {
-      setRequests((prev) => [...prev, event.payload]);
+      upsertRequest(event.payload);
     });
     return () => { unlisten.then((fn) => fn()); };
-  }, []);
+  }, [upsertRequest]);
 
   const startCapture = async () => {
     setError(null);
+    setWarning(null);
     try {
-      const port = await invoke<number>("start_capture");
-      setCapturing(true);
-      setProxyPort(port);
+      const next = await invoke<CaptureStatus>("start_capture");
+      setCapturing(next.running);
+      setProxyPort(next.port);
+      setBackend(next.backend);
+      setCaptureTarget(next.target);
+      setWarning(next.warning);
     } catch (e) {
       setError(String(e));
     }
@@ -77,6 +114,9 @@ export default function TrafficCapture() {
       await invoke("stop_capture");
       setCapturing(false);
       setProxyPort(null);
+      setBackend("none");
+      setCaptureTarget(null);
+      setWarning(null);
     } catch (e) {
       setError(String(e));
     }
@@ -190,6 +230,12 @@ export default function TrafficCapture() {
         </div>
       )}
 
+      {warning && (
+        <div className="mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 rounded-lg text-sm">
+          {warning}
+        </div>
+      )}
+
       {/* Control Bar */}
       <div className="flex items-center gap-3 mb-3 flex-wrap">
         {!capturing ? (
@@ -211,6 +257,14 @@ export default function TrafficCapture() {
         </select>
         <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("traffic.searchPlaceholder")} className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 flex-1 min-w-[200px] focus:ring-2 focus:ring-green-500 outline-none" />
         <div className="text-xs text-gray-400 whitespace-nowrap">
+          <span className="mr-3">
+            {t("traffic.backend")}:{" "}
+            {backend === "explicit"
+              ? t("traffic.backendExplicit")
+              : backend === "transparent"
+                ? t("traffic.backendTransparent")
+                : t("traffic.backendNone")}
+          </span>
           {capturing && proxyPort && (
             <span className="mr-3 text-green-600">
               {t("traffic.listeningOn")} 127.0.0.1:{proxyPort}
@@ -226,6 +280,16 @@ export default function TrafficCapture() {
           {t("traffic.proxyHint", { port: proxyPort })}
         </div>
       )}
+
+      {capturing && backend === "transparent" && captureTarget && (
+        <div className="mb-3 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-700 dark:text-blue-400">
+          {t("traffic.transparentHint", { target: captureTarget })}
+        </div>
+      )}
+
+      <div className="mb-3 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg text-xs text-amber-800 dark:text-amber-300">
+        {t("traffic.mitmScope")}
+      </div>
 
       {/* Request Table */}
       <div ref={tableRef} onScroll={handleScroll} className="flex-1 min-h-0 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-auto">
@@ -260,11 +324,19 @@ export default function TrafficCapture() {
                 <td className="px-3 py-1.5 text-xs text-gray-400">{req.id}</td>
                 <td className="px-3 py-1.5 text-xs font-mono">{req.timestamp}</td>
                 <td className="px-3 py-1.5 text-xs">{req.tool}</td>
-                <td className="px-3 py-1.5 text-xs font-medium">{req.method}</td>
+                <td className="px-3 py-1.5 text-xs font-medium">
+                  <div>{req.method}</div>
+                  <div className="text-[10px] text-gray-400">{req.protocol}</div>
+                </td>
                 <td className="px-3 py-1.5 text-xs truncate max-w-[300px]">
                   {req.category === "blocked" ? (
                     <><span className="line-through text-gray-400">{req.url}</span><span className="ml-1 text-red-400">blocked</span></>
-                  ) : req.url}
+                  ) : (
+                    <>
+                      {req.url}
+                      {!req.complete && <span className="ml-1 text-blue-500">streaming</span>}
+                    </>
+                  )}
                 </td>
                 <td className="px-3 py-1.5 text-xs">
                   {req.category === "blocked" ? <span className="text-red-400">BLK</span> : <StatusBadge code={req.status} />}

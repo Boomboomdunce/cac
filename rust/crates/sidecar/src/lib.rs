@@ -6,7 +6,7 @@ pub mod session;
 
 pub use capture::{CaptureBuffer, CapturedRequest};
 pub use egress::detect_egress_ip;
-pub use proxy::{CaptureProxy, CaptureProxyConfig};
+pub use proxy::{CaptureProxy, CaptureProxyConfig, MitmProxyConfig};
 pub use server::{SidecarError, SidecarServer};
 pub use session::{PublicSessionAuditEvent, SessionAuditEvent, SidecarSession};
 pub use sidecar_proto::{

@@ -3,7 +3,12 @@ use serde_json::Value;
 use std::fs;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread;
+use std::time::Duration;
 
 fn fixture_fake_claude_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/fake_claude.js")
@@ -96,6 +101,10 @@ fn run_claude_injects_expected_environment() {
         .and_then(Value::as_str)
         .is_some_and(|value| value.contains("--require")));
     assert_eq!(
+        payload.get("NODE_USE_ENV_PROXY").and_then(Value::as_str),
+        Some("1")
+    );
+    assert_eq!(
         payload.get("ANTHROPIC_BASE_URL").and_then(Value::as_str),
         None
     );
@@ -165,10 +174,10 @@ fn run_claude_injects_expected_environment() {
         payload.get("CAC_MTLS_CA").and_then(Value::as_str),
         payload.get("CCP_MTLS_CA").and_then(Value::as_str)
     );
-    assert_eq!(
-        payload.get("NODE_EXTRA_CA_CERTS").and_then(Value::as_str),
-        payload.get("CCP_MTLS_CA").and_then(Value::as_str)
-    );
+    assert!(payload
+        .get("NODE_EXTRA_CA_CERTS")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value.ends_with("certs/mitm/node_extra_ca_bundle.pem")));
     assert!(payload
         .get("HOSTALIASES")
         .and_then(Value::as_str)
@@ -242,6 +251,63 @@ fn run_claude_injects_expected_environment() {
         .get("ioregCommand")
         .and_then(Value::as_str)
         .is_some_and(|value| value.contains(expected_uuid.as_str())));
+}
+
+#[test]
+fn run_node_fetch_uses_detected_sidecar_proxy() {
+    let temp = tempfile::tempdir().unwrap();
+    let state_root = temp.path().join("state");
+    let (upstream_proxy_url, _upstream_thread) = reachable_proxy_url();
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", &state_root)
+        .args([
+            "profile",
+            "create",
+            "work",
+            "--adapter",
+            "claude",
+            "--proxy",
+            &upstream_proxy_url,
+        ])
+        .assert()
+        .success();
+
+    fs::create_dir_all(state_root.join("config")).unwrap();
+
+    let sidecar_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let sidecar_port = sidecar_listener.local_addr().unwrap().port();
+    fs::write(
+        state_root.join("config/sidecar_port"),
+        format!("{sidecar_port}\n"),
+    )
+    .unwrap();
+
+    let sidecar_contacted = Arc::new(AtomicBool::new(false));
+    let accepted_flag = Arc::clone(&sidecar_contacted);
+    let _sidecar_thread = thread::spawn(move || {
+        if let Ok((stream, _)) = sidecar_listener.accept() {
+            accepted_flag.store(true, Ordering::SeqCst);
+            drop(stream);
+        }
+    });
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", &state_root)
+        .args(["run", "--profile", "work", "--", "node", "-e"])
+        .arg(
+            "fetch('https://example.com').then(() => process.exit(0)).catch(() => process.exit(1))",
+        )
+        .assert()
+        .failure();
+
+    thread::sleep(Duration::from_millis(200));
+    assert!(
+        sidecar_contacted.load(Ordering::SeqCst),
+        "wrapped node fetch did not contact detected sidecar proxy"
+    );
 }
 
 #[test]

@@ -55,8 +55,13 @@ fn build_tray_menu(app: &App) -> Result<Menu<tauri::Wry>, Box<dyn std::error::Er
     } else {
         "Stop Protection"
     };
-    let protection_i =
-        MenuItem::with_id(app, "toggle_protection", protection_label, true, None::<&str>)?;
+    let protection_i = MenuItem::with_id(
+        app,
+        "toggle_protection",
+        protection_label,
+        true,
+        None::<&str>,
+    )?;
 
     // Profile submenu
     let profile_sub = {

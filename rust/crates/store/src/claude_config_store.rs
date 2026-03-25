@@ -61,12 +61,10 @@ fn materialize_settings_json(
     provider: Option<&ClaudeProviderConfig>,
 ) -> Result<(), StoreError> {
     let mut document = if destination.is_file() {
-        serde_json::from_str::<Value>(&fs::read_to_string(&destination)?)?
+        read_json_or_default_object(&destination)?
     } else {
         match source {
-            Some(path) if path.is_file() => {
-                serde_json::from_str::<Value>(&fs::read_to_string(path)?)?
-            }
+            Some(path) if path.is_file() => read_json_or_default_object(&path)?,
             _ => Value::Object(Map::new()),
         }
     };
@@ -79,7 +77,7 @@ fn materialize_claude_json(
     destination: PathBuf,
 ) -> Result<(), StoreError> {
     let document = match source {
-        Some(path) if path.is_file() => serde_json::from_str::<Value>(&fs::read_to_string(path)?)?,
+        Some(path) if path.is_file() => read_json_or_default_object(&path)?,
         _ => Value::Object(Map::new()),
     };
     let object = match document {
@@ -106,7 +104,7 @@ pub fn snapshot_user_claude_provider() -> Result<Option<ClaudeProviderConfig>, S
         return Ok(None);
     }
 
-    let document = serde_json::from_str::<Value>(&fs::read_to_string(path)?)?;
+    let document = read_json_or_default_object(&path)?;
     let Some(env_map) = document.get("env").and_then(Value::as_object) else {
         return Ok(None);
     };
@@ -184,6 +182,19 @@ fn apply_provider_settings(document: &mut Value, provider: Option<&ClaudeProvide
     }
 }
 
+fn read_json_or_default_object(path: &Path) -> Result<Value, StoreError> {
+    let contents = fs::read_to_string(path)?;
+    if contents.trim().is_empty() {
+        return Ok(Value::Object(Map::new()));
+    }
+
+    match serde_json::from_str::<Value>(&contents) {
+        Ok(value) => Ok(value),
+        Err(err) if err.is_eof() => Ok(Value::Object(Map::new())),
+        Err(err) => Err(err.into()),
+    }
+}
+
 fn materialize_optional_dir(source: Option<&Path>, destination: &Path) -> Result<(), StoreError> {
     remove_path_if_exists(destination)?;
 
@@ -257,6 +268,36 @@ fn set_owner_only(path: &Path) -> Result<(), StoreError> {
     permissions.set_mode(0o700);
     fs::set_permissions(path, permissions)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn materialize_managed_config_tolerates_empty_user_settings_file() {
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        let state = temp.path().join("state");
+        let user_claude_dir = home.join(".claude");
+        std::fs::create_dir_all(&user_claude_dir).unwrap();
+        std::fs::write(user_claude_dir.join("settings.json"), "").unwrap();
+        let previous_home = std::env::var_os("HOME");
+        std::env::set_var("HOME", &home);
+
+        let layout = StateLayout::new(&state).unwrap();
+        let profile = Profile::new("work", "claude", core::PrivacyPolicy::default());
+        let managed = materialize_managed_claude_config(&layout, &profile).unwrap();
+
+        let settings = std::fs::read_to_string(managed.root.join("settings.json")).unwrap();
+        assert!(settings.contains("{"));
+
+        match previous_home {
+            Some(value) => std::env::set_var("HOME", value),
+            None => std::env::remove_var("HOME"),
+        }
+    }
 }
 
 #[cfg(not(unix))]

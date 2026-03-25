@@ -2,6 +2,7 @@ use assert_cmd::Command;
 use core::{CapabilitySet, PrivacyPolicy, Profile, TargetAdapter};
 use launcher::builder::{AdapterLaunchPolicy, LaunchPlanBuilder};
 use sidecar::SIDECAR_PROTOCOL_VERSION;
+use std::{fs, net::TcpListener, thread};
 use tempfile::tempdir;
 
 #[cfg(unix)]
@@ -184,6 +185,60 @@ fn run_refuses_to_launch_when_proxy_is_unreachable() {
 }
 
 #[test]
+fn cli_defaults_state_root_to_home_ccp_rust_when_env_is_unset() {
+    let temp = tempdir().unwrap();
+    let home = temp.path().join("home");
+    let cwd = temp.path().join("workspace");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&cwd).unwrap();
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .current_dir(&cwd)
+        .env("HOME", &home)
+        .env_remove("CCP_STATE_ROOT")
+        .args(["profile", "create", "work", "--adapter", "claude"])
+        .assert()
+        .success();
+
+    assert!(home.join(".ccp-rust/profiles/work.json").is_file());
+    assert!(!cwd.join("ccp-state/profiles/work.json").exists());
+}
+
+#[test]
+fn run_warns_when_sidecar_port_file_is_stale_before_falling_back() {
+    let temp = tempdir().unwrap();
+    let state_root = temp.path();
+    let upstream = tcp_listener_fixture();
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", state_root)
+        .args([
+            "profile",
+            "create",
+            "work",
+            "--adapter",
+            "claude",
+            "--proxy",
+            &format!("http://127.0.0.1:{}", upstream.port),
+        ])
+        .assert()
+        .success();
+
+    fs::create_dir_all(state_root.join("config")).unwrap();
+    fs::write(state_root.join("config/sidecar_port"), "9\n").unwrap();
+
+    Command::cargo_bin("ccp")
+        .unwrap()
+        .env("CCP_STATE_ROOT", state_root)
+        .args(["run", "--profile", "work", "--", "env"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("warning: sidecar_port"));
+}
+
+#[test]
 fn builder_quotes_runtime_hook_paths_in_node_options() {
     let profile = Profile::new("claude-profile", "claude", PrivacyPolicy::default());
     let adapter = TargetAdapter::new(
@@ -282,4 +337,21 @@ fn latest_env_value(execution: &launcher::LaunchPlanExecution, key: &str) -> Opt
         .filter(|(candidate, _)| candidate == key)
         .map(|(_, value)| value.clone())
         .last()
+}
+
+struct TcpListenerFixture {
+    port: u16,
+}
+
+fn tcp_listener_fixture() -> TcpListenerFixture {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let _join = thread::spawn(move || {
+        for _ in 0..4 {
+            if listener.accept().is_err() {
+                break;
+            }
+        }
+    });
+    TcpListenerFixture { port }
 }

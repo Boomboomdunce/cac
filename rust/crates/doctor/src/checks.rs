@@ -12,6 +12,7 @@ use std::{
     process::Command,
     time::Duration,
 };
+use store::mitm_system_trust_status_for_root;
 use x509_parser::{parse_x509_certificate, pem::parse_x509_pem};
 
 const STATE_DIRS: &[&str] = &[
@@ -340,6 +341,57 @@ pub fn mtls_materials(config: &DoctorConfig) -> CheckResult {
             "mTLS materials",
             Some(format!("missing certificate files: {}", missing.join(", "))),
         )
+    }
+}
+
+pub fn mitm_materials(config: &DoctorConfig) -> CheckResult {
+    let required = [
+        (
+            "MITM CA cert",
+            config.state_root().join("certs/mitm/root_ca.pem"),
+        ),
+        (
+            "MITM CA key",
+            config.state_root().join("certs/mitm/root_ca_key.pem"),
+        ),
+        (
+            "Node CA bundle",
+            config
+                .state_root()
+                .join("certs/mitm/node_extra_ca_bundle.pem"),
+        ),
+    ];
+    let missing = required
+        .iter()
+        .filter_map(|(label, path)| (!path.is_file()).then_some(*label))
+        .collect::<Vec<_>>();
+
+    if missing.is_empty() {
+        CheckResult::ok(
+            "MITM materials",
+            Some("MITM CA and merged Node trust bundle are present".to_string()),
+        )
+    } else {
+        CheckResult::warning(
+            "MITM materials",
+            Some(format!("missing MITM files: {}", missing.join(", "))),
+        )
+    }
+}
+
+pub fn mitm_system_trust(config: &DoctorConfig) -> CheckResult {
+    match mitm_system_trust_status_for_root(config.state_root()) {
+        Ok(status) if !status.supported => {
+            CheckResult::warning("MITM system trust", Some(status.message))
+        }
+        Ok(status) if status.installed => {
+            CheckResult::ok("MITM system trust", Some(status.message))
+        }
+        Ok(status) => CheckResult::warning("MITM system trust", Some(status.message)),
+        Err(err) => CheckResult::warning(
+            "MITM system trust",
+            Some(format!("unable to determine system trust state: {err}")),
+        ),
     }
 }
 
@@ -1128,5 +1180,30 @@ mod tests {
         assert!(findings
             .iter()
             .any(|item| item.contains("same as direct exit IP")));
+    }
+
+    #[test]
+    fn mitm_materials_warns_when_files_are_missing() {
+        let root = std::env::temp_dir().join(format!(
+            "ccp-doctor-mitm-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("certs/mitm")).unwrap();
+        let config = DoctorConfig::new(root.clone(), "work");
+
+        let result = mitm_materials(&config);
+
+        assert_eq!(result.name, "MITM materials");
+        assert!(matches!(result.status, crate::report::CheckStatus::Warning));
+        assert!(result
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("missing MITM files")));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }

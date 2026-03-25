@@ -13,6 +13,12 @@ interface GlobalSettings {
   auto_start: boolean;
   log_level: string;
   language: string;
+  capture_backend_mode: string;
+}
+
+interface SetupStatus {
+  transparent_capture_available: boolean;
+  transparent_capture_status: string;
 }
 
 export default function Settings() {
@@ -20,14 +26,17 @@ export default function Settings() {
   const [tab, setTab] = useState<SettingsTab>("profiles");
   const [showCreate, setShowCreate] = useState(false);
   const [settings, setSettings] = useState<GlobalSettings | null>(null);
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
 
   useEffect(() => {
     invoke<GlobalSettings>("get_global_settings").then(setSettings).catch(() => {});
+    invoke<SetupStatus>("get_setup_status").then(setSetupStatus).catch(() => {});
   }, []);
 
   const saveSettings = async (updated: GlobalSettings) => {
     setSettings(updated);
     await invoke("save_global_settings", { settings: updated }).catch(() => {});
+    invoke<SetupStatus>("get_setup_status").then(setSetupStatus).catch(() => {});
   };
 
   const changeLanguage = (lang: string) => {
@@ -120,6 +129,34 @@ export default function Settings() {
                 ))}
               </select>
             </div>
+          </SettingCard>
+
+          <SettingCard>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-sm">{t("settings.captureBackend")}</div>
+                <div className="text-xs text-gray-400 mt-0.5">{t("settings.captureBackendDesc")}</div>
+              </div>
+              <select
+                value={settings.capture_backend_mode}
+                onChange={(e) => saveSettings({ ...settings, capture_backend_mode: e.target.value })}
+                className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 outline-none"
+              >
+                <option value="auto">{t("settings.captureBackendAuto")}</option>
+                <option value="transparent">{t("settings.captureBackendTransparent")}</option>
+                <option value="explicit">{t("settings.captureBackendExplicit")}</option>
+              </select>
+            </div>
+            {setupStatus && (
+              <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${
+                setupStatus.transparent_capture_available
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+                  : "bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+              }`}>
+                <div className="font-medium">{t("settings.captureBackendStatus")}</div>
+                <div className="mt-1">{setupStatus.transparent_capture_status}</div>
+              </div>
+            )}
           </SettingCard>
 
           {/* Auto Start */}

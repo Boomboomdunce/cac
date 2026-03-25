@@ -33,6 +33,16 @@ export default function RequestDetail({ request, onClose }: Props) {
           <span className={isBlocked ? "text-red-500" : "text-gray-600 dark:text-gray-400"}>
             {isBlocked ? "BLOCKED" : `${request.method} ${request.status ?? ""}`}
           </span>
+          {!isBlocked && (
+            <span className="text-[10px] uppercase tracking-wide text-blue-500">
+              {request.protocol}
+            </span>
+          )}
+          {!isBlocked && !request.complete && (
+            <span className="text-[10px] uppercase tracking-wide text-amber-500">
+              streaming
+            </span>
+          )}
           <span className="text-xs text-gray-400 truncate max-w-[400px]">{request.url}</span>
         </div>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg ml-2">
@@ -73,9 +83,13 @@ export default function RequestDetail({ request, onClose }: Props) {
 
           <div className="flex-1 overflow-auto p-4 text-xs font-mono whitespace-pre-wrap">
             {tab === "reqHeaders" && <HeadersView headers={request.request_headers} />}
-            {tab === "reqBody" && <BodyView body={request.request_body} />}
+            {tab === "reqBody" && (
+              <BodyView body={request.request_body} truncated={request.request_body_truncated} />
+            )}
             {tab === "resHeaders" && <HeadersView headers={request.response_headers} />}
-            {tab === "resBody" && <BodyView body={request.response_body} />}
+            {tab === "resBody" && (
+              <BodyView body={request.response_body} truncated={request.response_body_truncated} />
+            )}
             {tab === "privacy" && <PrivacyComparison request={request} />}
           </div>
         </>
@@ -107,16 +121,27 @@ function HeadersView({ headers }: { headers: [string, string][] }) {
   );
 }
 
-function BodyView({ body }: { body: string | null }) {
+function BodyView({
+  body,
+  truncated,
+}: {
+  body: string | null;
+  truncated?: boolean;
+}) {
   const { t } = useTranslation();
   if (!body) return <span className="text-gray-400">{t("detail.noData")}</span>;
 
   // Try to pretty-print JSON
   try {
     const parsed = JSON.parse(body);
-    return <pre className="text-gray-700 dark:text-gray-300">{JSON.stringify(parsed, null, 2)}</pre>;
+    return (
+      <pre className="text-gray-700 dark:text-gray-300">
+        {JSON.stringify(parsed, null, 2)}
+        {truncated ? "\n...[truncated]" : ""}
+      </pre>
+    );
   } catch {
-    return <pre className="text-gray-700 dark:text-gray-300">{body}</pre>;
+    return <pre className="text-gray-700 dark:text-gray-300">{body}{truncated ? "\n...[truncated]" : ""}</pre>;
   }
 }
 

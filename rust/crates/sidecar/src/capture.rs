@@ -10,11 +10,17 @@ pub struct CapturedRequest {
     pub id: u64,
     pub timestamp: String,
     pub tool: String,
+    pub protocol: String,
+    pub connection_id: Option<u64>,
+    pub stream_id: Option<u64>,
     pub method: String,
     pub url: String,
     pub status: Option<u16>,
     pub size: u64,
     pub duration: Option<u64>,
+    pub complete: bool,
+    pub request_body_truncated: bool,
+    pub response_body_truncated: bool,
     pub category: String,
     pub blocked_reason: Option<String>,
     pub request_headers: Vec<(String, String)>,
@@ -48,8 +54,8 @@ impl CaptureBuffer {
         })
     }
 
-    /// Push a new captured request. Returns the assigned ID.
-    pub fn push(&self, mut req: CapturedRequest) -> u64 {
+    /// Create a new captured request. Returns the assigned ID.
+    pub fn create(&self, mut req: CapturedRequest) -> u64 {
         let mut inner = self.inner.lock().unwrap();
         let id = inner.next_id;
         inner.next_id += 1;
@@ -65,6 +71,24 @@ impl CaptureBuffer {
         // Broadcast to subscribers (ignore if no receivers)
         let _ = self.tx.send(clone);
         id
+    }
+
+    /// Backward-compatible append helper.
+    pub fn push(&self, req: CapturedRequest) -> u64 {
+        self.create(req)
+    }
+
+    /// Update an existing captured request in place and broadcast the latest value.
+    pub fn update<F>(&self, id: u64, update: F) -> Option<CapturedRequest>
+    where
+        F: FnOnce(&mut CapturedRequest),
+    {
+        let mut inner = self.inner.lock().unwrap();
+        let req = inner.requests.iter_mut().find(|req| req.id == id)?;
+        update(req);
+        let clone = req.clone();
+        let _ = self.tx.send(clone.clone());
+        Some(clone)
     }
 
     /// Subscribe to new captured requests.
@@ -93,17 +117,24 @@ pub fn build_connect_record(
     bytes_down: u64,
     start: Instant,
     success: bool,
+    connection_id: Option<u64>,
 ) -> CapturedRequest {
     let now = chrono_now();
     CapturedRequest {
         id: 0, // assigned by buffer
         timestamp: now,
         tool: tool.to_string(),
+        protocol: "connect".to_string(),
+        connection_id,
+        stream_id: None,
         method: "CONNECT".to_string(),
         url: host.to_string(),
         status: if success { Some(200) } else { Some(502) },
         size: bytes_down,
         duration: Some(start.elapsed().as_millis() as u64),
+        complete: true,
+        request_body_truncated: false,
+        response_body_truncated: false,
         category: "normal".to_string(),
         blocked_reason: None,
         request_headers: vec![
@@ -122,11 +153,17 @@ pub fn build_blocked_record(host: &str, tool: &str, reason: &str) -> CapturedReq
         id: 0,
         timestamp: chrono_now(),
         tool: tool.to_string(),
+        protocol: "connect".to_string(),
+        connection_id: None,
+        stream_id: None,
         method: "CONNECT".to_string(),
         url: host.to_string(),
         status: None,
         size: 0,
         duration: None,
+        complete: true,
+        request_body_truncated: false,
+        response_body_truncated: false,
         category: "blocked".to_string(),
         blocked_reason: Some(reason.to_string()),
         request_headers: vec![],
@@ -141,11 +178,19 @@ pub struct HttpRecordParams {
     pub method: String,
     pub url: String,
     pub tool: String,
+    pub protocol: String,
+    pub connection_id: Option<u64>,
+    pub stream_id: Option<u64>,
     pub status: u16,
     pub size: u64,
     pub start: Instant,
+    pub complete: bool,
     pub req_headers: Vec<(String, String)>,
     pub res_headers: Vec<(String, String)>,
+    pub req_body: Option<String>,
+    pub res_body: Option<String>,
+    pub req_body_truncated: bool,
+    pub res_body_truncated: bool,
 }
 
 /// Build a record for an HTTP (non-TLS) request.
@@ -154,17 +199,23 @@ pub fn build_http_record(params: HttpRecordParams) -> CapturedRequest {
         id: 0,
         timestamp: chrono_now(),
         tool: params.tool,
+        protocol: params.protocol,
+        connection_id: params.connection_id,
+        stream_id: params.stream_id,
         method: params.method,
         url: params.url,
         status: Some(params.status),
         size: params.size,
         duration: Some(params.start.elapsed().as_millis() as u64),
+        complete: params.complete,
+        request_body_truncated: params.req_body_truncated,
+        response_body_truncated: params.res_body_truncated,
         category: "normal".to_string(),
         blocked_reason: None,
         request_headers: params.req_headers,
-        request_body: None,
+        request_body: params.req_body,
         response_headers: params.res_headers,
-        response_body: None,
+        response_body: params.res_body,
     }
 }
 

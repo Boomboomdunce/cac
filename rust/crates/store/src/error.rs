@@ -9,6 +9,7 @@ pub enum StoreError {
     InvalidProfileName(String),
     CertGeneration(String),
     IdentityGeneration(String),
+    TrustManagement(String),
 }
 
 impl fmt::Display for StoreError {
@@ -23,6 +24,9 @@ impl fmt::Display for StoreError {
             }
             StoreError::IdentityGeneration(message) => {
                 write!(f, "identity generation error: {message}")
+            }
+            StoreError::TrustManagement(message) => {
+                write!(f, "trust management error: {message}")
             }
         }
     }

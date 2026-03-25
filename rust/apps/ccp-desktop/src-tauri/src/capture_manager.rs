@@ -1,20 +1,35 @@
-//! Manages the lifecycle of the local capture proxy and pushes events to the frontend.
+//! Manages the lifecycle of capture backends and pushes events to the frontend.
 
-use ccp_sidecar::{CaptureBuffer, CaptureProxy, CaptureProxyConfig};
+use crate::mitmproxy_backend::MitmproxyProcess;
+use ccp_sidecar::{CaptureBuffer, CaptureProxy, CaptureProxyConfig, MitmProxyConfig};
+use ccp_store::StateLayout;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
-/// Shared state for the capture proxy.
+pub struct CaptureRuntimeStatus {
+    pub running: bool,
+    pub port: Option<u16>,
+    pub backend: String,
+    pub target: Option<String>,
+    pub warning: Option<String>,
+}
+
+enum ActiveCapture {
+    Explicit(CaptureProxy),
+    Transparent(MitmproxyProcess),
+}
+
+/// Shared state for capture backends.
 pub struct CaptureState {
-    proxy: Mutex<Option<CaptureProxy>>,
+    backend: Mutex<Option<ActiveCapture>>,
     buffer: Arc<CaptureBuffer>,
 }
 
 impl CaptureState {
     pub fn new() -> Self {
         Self {
-            proxy: Mutex::new(None),
+            backend: Mutex::new(None),
             buffer: CaptureBuffer::new(50_000),
         }
     }
@@ -23,56 +38,137 @@ impl CaptureState {
         &self.buffer
     }
 
-    /// Start the capture proxy. Returns the local port.
-    pub async fn start_proxy(
+    pub async fn start_explicit_proxy(
         &self,
         upstream_addr: String,
         tool_name: String,
-    ) -> Result<u16, String> {
-        let mut guard = self.proxy.lock().await;
+        mitm: Option<MitmProxyConfig>,
+        state_root: std::path::PathBuf,
+    ) -> Result<CaptureRuntimeStatus, String> {
+        let mut guard = self.backend.lock().await;
         if guard.is_some() {
-            return Err("Capture proxy already running".to_string());
+            return Err("Capture backend already running".to_string());
         }
 
         let config = CaptureProxyConfig {
             bind_addr: "127.0.0.1:0".to_string(),
             upstream_addr,
             tool_name,
+            mitm,
         };
 
         let proxy = CaptureProxy::start(config, self.buffer.clone())
             .await
             .map_err(|e| format!("Failed to start proxy: {e}"))?;
-
         let port = proxy.port();
-
-        // Write port file so CLI can discover the sidecar
-        let port_file = super::commands::state_root().join("config").join("sidecar_port");
+        let port_file = state_root.join("config").join("sidecar_port");
         let _ = std::fs::write(&port_file, port.to_string());
 
-        *guard = Some(proxy);
-        Ok(port)
+        *guard = Some(ActiveCapture::Explicit(proxy));
+        Ok(CaptureRuntimeStatus {
+            running: true,
+            port: Some(port),
+            backend: "explicit".to_string(),
+            target: None,
+            warning: None,
+        })
     }
 
-    /// Stop the capture proxy.
-    pub async fn stop_proxy(&self) {
-        let mut guard = self.proxy.lock().await;
-        if let Some(proxy) = guard.take() {
-            proxy.shutdown().await;
+    pub async fn start_transparent_capture(
+        &self,
+        layout: &StateLayout,
+        selector: &str,
+        tool_name: &str,
+    ) -> Result<CaptureRuntimeStatus, String> {
+        let mut guard = self.backend.lock().await;
+        if guard.is_some() {
+            return Err("Capture backend already running".to_string());
         }
-        // Remove port file
-        let port_file = super::commands::state_root().join("config").join("sidecar_port");
+
+        let process = crate::mitmproxy_backend::start_mitmdump_process(
+            layout,
+            selector,
+            tool_name,
+            self.buffer.clone(),
+        )
+        .await?;
+        let port_file = layout.config_dir().join("sidecar_port");
+        let _ = std::fs::remove_file(&port_file);
+
+        *guard = Some(ActiveCapture::Transparent(process));
+        Ok(CaptureRuntimeStatus {
+            running: true,
+            port: None,
+            backend: "transparent".to_string(),
+            target: Some(selector.to_string()),
+            warning: None,
+        })
+    }
+
+    pub async fn stop_capture(&self, state_root: std::path::PathBuf) {
+        let mut guard = self.backend.lock().await;
+        let active = guard.take();
+        drop(guard);
+
+        match active {
+            Some(ActiveCapture::Explicit(proxy)) => {
+                proxy.shutdown().await;
+            }
+            Some(ActiveCapture::Transparent(process)) => {
+                process.shutdown().await;
+            }
+            None => {}
+        }
+
+        let port_file = state_root.join("config").join("sidecar_port");
         let _ = std::fs::remove_file(&port_file);
     }
 
-    /// Whether the proxy is currently running.
-    pub async fn is_running(&self) -> bool {
-        self.proxy.lock().await.is_some()
-    }
-
-    /// Get the local proxy port, if running.
-    pub async fn proxy_port(&self) -> Option<u16> {
-        self.proxy.lock().await.as_ref().map(|p| p.port())
+    pub async fn status(&self) -> CaptureRuntimeStatus {
+        let mut guard = self.backend.lock().await;
+        match guard.as_mut() {
+            Some(ActiveCapture::Explicit(proxy)) => CaptureRuntimeStatus {
+                running: true,
+                port: Some(proxy.port()),
+                backend: "explicit".to_string(),
+                target: None,
+                warning: None,
+            },
+            Some(ActiveCapture::Transparent(process)) => match process.try_wait() {
+                Ok(None) => CaptureRuntimeStatus {
+                    running: true,
+                    port: None,
+                    backend: "transparent".to_string(),
+                    target: Some(process.selector.clone()),
+                    warning: None,
+                },
+                Ok(Some(status)) => {
+                    let selector = process.selector.clone();
+                    *guard = None;
+                    CaptureRuntimeStatus {
+                        running: false,
+                        port: None,
+                        backend: "transparent".to_string(),
+                        target: Some(selector),
+                        warning: Some(format!("mitmdump exited: {status}")),
+                    }
+                }
+                Err(err) => CaptureRuntimeStatus {
+                    running: false,
+                    port: None,
+                    backend: "transparent".to_string(),
+                    target: Some(process.selector.clone()),
+                    warning: Some(err),
+                },
+            },
+            None => CaptureRuntimeStatus {
+                running: false,
+                port: None,
+                backend: "none".to_string(),
+                target: None,
+                warning: None,
+            },
+        }
     }
 }
 

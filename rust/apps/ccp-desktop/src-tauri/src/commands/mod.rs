@@ -1,19 +1,20 @@
-use ccp_store::{
-    ensure_profile_certificates, ensure_profile_identity_seeded, load_profile_identity,
-    certificate_material, ProfileStore, RuntimeStateStore, StateLayout,
-};
+use ccp::{default_state_root, inspect_setup_status, install};
 use ccp_core::{PrivacyPolicy, Profile};
+use ccp_store::{
+    certificate_material, ensure_mitm_certificates, ensure_profile_certificates,
+    ensure_profile_identity_seeded, install_mitm_system_trust, load_profile_identity,
+    mitm_certificate_material, mitm_system_trust_status, remove_mitm_system_trust,
+    MitmSystemTrustStatus, ProfileStore, RuntimeStateStore, StateLayout,
+};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub(crate) fn state_root() -> PathBuf {
-    std::env::var("CCP_STATE_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".ccp-rust")
-        })
+    default_state_root().unwrap_or_else(|_| {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".ccp-rust")
+    })
 }
 
 fn layout() -> Result<StateLayout, String> {
@@ -30,6 +31,42 @@ pub struct AppStatus {
     pub version: String,
 }
 
+#[derive(Serialize)]
+pub struct SetupStatus {
+    pub state_root: String,
+    pub wrappers_installed: bool,
+    pub can_auto_install_wrappers: bool,
+    pub install_metadata_present: bool,
+    pub install_command: String,
+    pub suggested_bin_dir: String,
+    pub suggested_shell_rc: Option<String>,
+    pub profiles: Vec<String>,
+    pub active_profile: Option<String>,
+    pub active_profile_has_proxy: bool,
+    pub proxy_required_for_capture: bool,
+    pub capture_backend_mode: String,
+    pub transparent_capture_available: bool,
+    pub transparent_capture_status: String,
+    pub mitm_ready: bool,
+    pub mitm_status: String,
+    pub mitm_system_trust_supported: bool,
+    pub mitm_system_trust_installed: bool,
+    pub mitm_system_trust_status: String,
+}
+
+#[derive(Deserialize)]
+pub struct InstallWrappersInput {
+    pub update_shell_rc: bool,
+}
+
+#[derive(Serialize)]
+pub struct InstallWrappersResult {
+    pub bin_dir: String,
+    pub shell_rc: Option<String>,
+    pub ccp_bin_path: String,
+    pub generated_paths: Vec<String>,
+}
+
 #[tauri::command]
 pub fn get_status() -> Result<AppStatus, String> {
     let layout = layout()?;
@@ -42,6 +79,333 @@ pub fn get_status() -> Result<AppStatus, String> {
         profile,
         version: env!("CARGO_PKG_VERSION").to_string(),
     })
+}
+
+#[tauri::command]
+pub fn get_setup_status() -> Result<SetupStatus, String> {
+    setup_status_for_root(&state_root())
+}
+
+fn setup_status_for_root(root: &std::path::Path) -> Result<SetupStatus, String> {
+    let status = inspect_setup_status(root);
+    let layout = StateLayout::new(root).map_err(|e| e.to_string())?;
+    let settings = load_global_settings_from_root(root);
+    let transparent = crate::mitmproxy_backend::inspect_transparent_capture_support();
+    let proxy_required_for_capture =
+        !capture_mode_prefers_transparent(&settings.capture_backend_mode) || !transparent.available;
+    let mitm_material = mitm_certificate_material(&layout);
+    let mitm_ready = mitm_material.ca_cert.is_file()
+        && mitm_material.ca_key.is_file()
+        && mitm_material.node_ca_bundle.is_file();
+    let mitm_status = if mitm_ready {
+        "MITM capture certificates ready".to_string()
+    } else {
+        "Missing MITM capture certificates".to_string()
+    };
+    let trust =
+        mitm_system_trust_status(&layout).unwrap_or_else(|err| ccp_store::MitmSystemTrustStatus {
+            supported: cfg!(target_os = "macos"),
+            installed: false,
+            keychain: None,
+            message: format!("MITM system trust check failed: {err}"),
+        });
+
+    Ok(SetupStatus {
+        state_root: status.state_root.display().to_string(),
+        wrappers_installed: status.wrappers_installed,
+        can_auto_install_wrappers: status.ccp_binary_path.is_some(),
+        install_metadata_present: status.install_metadata_present,
+        install_command: "ccp setup".to_string(),
+        suggested_bin_dir: status.suggested_bin_dir.display().to_string(),
+        suggested_shell_rc: status
+            .suggested_shell_rc
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        profiles: status.profiles,
+        active_profile: status.active_profile,
+        active_profile_has_proxy: status.active_profile_has_proxy,
+        proxy_required_for_capture,
+        capture_backend_mode: settings.capture_backend_mode,
+        transparent_capture_available: transparent.available,
+        transparent_capture_status: transparent.message,
+        mitm_ready,
+        mitm_status,
+        mitm_system_trust_supported: trust.supported,
+        mitm_system_trust_installed: trust.installed,
+        mitm_system_trust_status: trust.message,
+    })
+}
+
+fn prepare_mitm_capture_for_layout(
+    layout: &StateLayout,
+    active_profile: Option<&str>,
+) -> Result<(), String> {
+    if let Some(profile_name) = active_profile {
+        ensure_profile_certificates(layout, profile_name).map_err(|e| e.to_string())?;
+    }
+    ensure_mitm_certificates(layout).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn prepare_mitm_capture() -> Result<(), String> {
+    let layout = layout()?;
+    let runtime = RuntimeStateStore::new(layout.clone());
+    let active_profile = runtime.active_profile().map_err(|e| e.to_string())?;
+    prepare_mitm_capture_for_layout(&layout, active_profile.as_deref())
+}
+
+#[tauri::command]
+pub fn install_mitm_trust() -> Result<String, String> {
+    let layout = layout()?;
+    let status = install_mitm_system_trust(&layout).map_err(|e| e.to_string())?;
+    Ok(status.message)
+}
+
+#[tauri::command]
+pub fn remove_mitm_trust() -> Result<String, String> {
+    let layout = layout()?;
+    let status = remove_mitm_system_trust(&layout).map_err(|e| e.to_string())?;
+    Ok(status.message)
+}
+
+#[tauri::command]
+pub fn install_wrappers(input: InstallWrappersInput) -> Result<InstallWrappersResult, String> {
+    let root = state_root();
+    let layout = StateLayout::new(root).map_err(|e| e.to_string())?;
+    let status = inspect_setup_status(layout.root());
+    let ccp_bin_path = status.ccp_binary_path.ok_or_else(|| {
+        "Could not locate a runnable ccp binary. Build or install ccp first, then retry."
+            .to_string()
+    })?;
+    let shell_rc = if input.update_shell_rc {
+        status.suggested_shell_rc.clone()
+    } else {
+        None
+    };
+
+    let metadata = install::setup(
+        &layout,
+        install::SetupConfig {
+            bin_dir: status.suggested_bin_dir,
+            shell_rc,
+            ccp_bin_path: ccp_bin_path.clone(),
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(InstallWrappersResult {
+        bin_dir: metadata.bin_dir.display().to_string(),
+        shell_rc: metadata.shell_rc.map(|path| path.display().to_string()),
+        ccp_bin_path: ccp_bin_path.display().to_string(),
+        generated_paths: metadata
+            .generated_paths
+            .into_iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        prepare_mitm_capture_for_layout, setup_status_for_root, update_profile, GlobalSettings,
+        UpdateProfileInput,
+    };
+    use ccp_core::{PrivacyPolicy, Profile};
+    use ccp_store::{ProfileStore, StateLayout};
+    use tempfile::tempdir;
+
+    #[test]
+    fn setup_status_reports_missing_mitm_assets_until_prepared() {
+        let root = std::env::temp_dir().join(format!(
+            "ccp-desktop-mitm-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let status = setup_status_for_root(&root).unwrap();
+        assert!(!status.mitm_ready);
+        assert!(status.mitm_status.contains("Missing"));
+        assert!(
+            status.mitm_system_trust_status.contains("not supported")
+                || status.mitm_system_trust_status.contains("not trusted")
+                || status
+                    .mitm_system_trust_status
+                    .contains("not been prepared")
+        );
+
+        let layout = StateLayout::new(&root).unwrap();
+        prepare_mitm_capture_for_layout(&layout, None).unwrap();
+
+        let status = setup_status_for_root(&root).unwrap();
+        assert!(status.mitm_ready);
+        assert!(status.mitm_status.contains("ready"));
+        assert!(
+            status.mitm_system_trust_supported
+                || status.mitm_system_trust_status.contains("not supported")
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn update_profile_persists_proxy_url() {
+        let temp = tempdir().unwrap();
+        let layout = StateLayout::new(temp.path()).unwrap();
+        let store = ProfileStore::new(layout.clone());
+        let profile = Profile::new("work", "claude", PrivacyPolicy::new());
+        store.save_profile(&profile).unwrap();
+
+        let previous = std::env::var_os("CCP_STATE_ROOT");
+        std::env::set_var("CCP_STATE_ROOT", temp.path());
+
+        update_profile(UpdateProfileInput {
+            name: "work".to_string(),
+            proxy_url: Some("http://127.0.0.1:6152".to_string()),
+            timezone: None,
+            language: None,
+        })
+        .unwrap();
+
+        let updated = store.load_profile("work").unwrap();
+        assert_eq!(updated.policy.proxy_url(), Some("http://127.0.0.1:6152"));
+
+        if let Some(value) = previous {
+            std::env::set_var("CCP_STATE_ROOT", value);
+        } else {
+            std::env::remove_var("CCP_STATE_ROOT");
+        }
+    }
+
+    #[test]
+    fn global_settings_default_capture_backend_mode_is_auto() {
+        let settings = GlobalSettings::default();
+        assert_eq!(settings.capture_backend_mode, "auto");
+    }
+
+    #[test]
+    fn setup_status_marks_proxy_optional_when_transparent_capture_is_available() {
+        let _guard = crate::mitmproxy_backend::TEST_ENV_LOCK.lock().unwrap();
+        let temp = tempdir().unwrap();
+        let layout = StateLayout::new(temp.path()).unwrap();
+        let store = ProfileStore::new(layout.clone());
+        let profile = Profile::new("work", "claude", PrivacyPolicy::new());
+        store.save_profile(&profile).unwrap();
+        ccp_store::RuntimeStateStore::new(layout)
+            .set_active_profile("work")
+            .unwrap();
+
+        let fake_mitmdump = temp.path().join("mitmdump");
+        std::fs::write(&fake_mitmdump, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&fake_mitmdump).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&fake_mitmdump, perms).unwrap();
+        }
+
+        let previous_root = std::env::var_os("CCP_STATE_ROOT");
+        let previous_mitmdump = std::env::var_os("CCP_MITMDUMP_PATH");
+        #[cfg(target_os = "macos")]
+        let previous_systemextensions = std::env::var_os("CCP_TEST_SYSTEMEXTENSIONSCTL_LIST");
+        std::env::set_var("CCP_STATE_ROOT", temp.path());
+        std::env::set_var("CCP_MITMDUMP_PATH", &fake_mitmdump);
+        #[cfg(target_os = "macos")]
+        std::env::set_var(
+            "CCP_TEST_SYSTEMEXTENSIONSCTL_LIST",
+            r#"
+--- com.apple.system_extension.network_extension
+enabled	active	teamID	bundleID (version)	name	[state]
+*	*	S8XHQB96PW	org.mitmproxy.macos-redirector.network-extension (2.0/1)	network-extension	[activated enabled]
+"#,
+        );
+
+        let status = setup_status_for_root(temp.path()).unwrap();
+        assert!(status.transparent_capture_available);
+        assert!(!status.proxy_required_for_capture);
+
+        if let Some(value) = previous_root {
+            std::env::set_var("CCP_STATE_ROOT", value);
+        } else {
+            std::env::remove_var("CCP_STATE_ROOT");
+        }
+
+        if let Some(value) = previous_mitmdump {
+            std::env::set_var("CCP_MITMDUMP_PATH", value);
+        } else {
+            std::env::remove_var("CCP_MITMDUMP_PATH");
+        }
+
+        #[cfg(target_os = "macos")]
+        if let Some(value) = previous_systemextensions {
+            std::env::set_var("CCP_TEST_SYSTEMEXTENSIONSCTL_LIST", value);
+        } else {
+            std::env::remove_var("CCP_TEST_SYSTEMEXTENSIONSCTL_LIST");
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn setup_status_marks_transparent_unavailable_when_redirector_waits_for_user() {
+        let _guard = crate::mitmproxy_backend::TEST_ENV_LOCK.lock().unwrap();
+        let temp = tempdir().unwrap();
+        let layout = StateLayout::new(temp.path()).unwrap();
+        let store = ProfileStore::new(layout.clone());
+        let profile = Profile::new("work", "claude", PrivacyPolicy::new());
+        store.save_profile(&profile).unwrap();
+        ccp_store::RuntimeStateStore::new(layout)
+            .set_active_profile("work")
+            .unwrap();
+
+        let fake_mitmdump = temp.path().join("mitmdump");
+        std::fs::write(&fake_mitmdump, "#!/bin/sh\nexit 0\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&fake_mitmdump).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fake_mitmdump, perms).unwrap();
+
+        let previous_root = std::env::var_os("CCP_STATE_ROOT");
+        let previous_mitmdump = std::env::var_os("CCP_MITMDUMP_PATH");
+        let previous_systemextensions = std::env::var_os("CCP_TEST_SYSTEMEXTENSIONSCTL_LIST");
+        std::env::set_var("CCP_STATE_ROOT", temp.path());
+        std::env::set_var("CCP_MITMDUMP_PATH", &fake_mitmdump);
+        std::env::set_var(
+            "CCP_TEST_SYSTEMEXTENSIONSCTL_LIST",
+            r#"
+--- com.apple.system_extension.network_extension
+enabled	active	teamID	bundleID (version)	name	[state]
+	*	S8XHQB96PW	org.mitmproxy.macos-redirector.network-extension (2.0/1)	network-extension	[activated waiting for user]
+"#,
+        );
+
+        let status = setup_status_for_root(temp.path()).unwrap();
+        assert!(!status.transparent_capture_available);
+        assert!(status.proxy_required_for_capture);
+        assert!(status.transparent_capture_status.contains("waiting for approval"));
+
+        if let Some(value) = previous_root {
+            std::env::set_var("CCP_STATE_ROOT", value);
+        } else {
+            std::env::remove_var("CCP_STATE_ROOT");
+        }
+
+        if let Some(value) = previous_mitmdump {
+            std::env::set_var("CCP_MITMDUMP_PATH", value);
+        } else {
+            std::env::remove_var("CCP_MITMDUMP_PATH");
+        }
+
+        if let Some(value) = previous_systemextensions {
+            std::env::set_var("CCP_TEST_SYSTEMEXTENSIONSCTL_LIST", value);
+        } else {
+            std::env::remove_var("CCP_TEST_SYSTEMEXTENSIONSCTL_LIST");
+        }
+    }
 }
 
 // ── Profiles ──
@@ -165,7 +529,9 @@ pub fn switch_profile(name: String) -> Result<(), String> {
     let store = ProfileStore::new(layout.clone());
     store.load_profile(&name).map_err(|e| e.to_string())?;
     let runtime = RuntimeStateStore::new(layout);
-    runtime.set_active_profile(&name).map_err(|e| e.to_string())?;
+    runtime
+        .set_active_profile(&name)
+        .map_err(|e| e.to_string())?;
     runtime.set_paused(false).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -276,8 +642,10 @@ pub struct DiagnosticReport {
 
 #[tauri::command]
 pub fn run_diagnostics(profile_name: String) -> Result<DiagnosticReport, String> {
-    let config = ccp_doctor::DoctorConfig::new(state_root(), profile_name);
-    let report = ccp_doctor::run(config);
+    let root = state_root();
+    let config = ccp_doctor::DoctorConfig::new(root.clone(), profile_name.clone());
+    let mut report = ccp_doctor::run(config);
+    ccp::audit::augment_doctor_report_with_live_runtime_audit(&mut report, &root, &profile_name);
 
     Ok(DiagnosticReport {
         ok: report.ok,
@@ -389,6 +757,16 @@ pub fn get_protection_layers() -> Result<Vec<ProtectionLayer>, String> {
     } else {
         false
     };
+    let mitm_material = mitm_certificate_material(&layout);
+    let mitm_ready = mitm_material.ca_cert.is_file()
+        && mitm_material.ca_key.is_file()
+        && mitm_material.node_ca_bundle.is_file();
+    let trust = mitm_system_trust_status(&layout).unwrap_or_else(|err| MitmSystemTrustStatus {
+        supported: cfg!(target_os = "macos"),
+        installed: false,
+        keychain: None,
+        message: format!("MITM system trust check failed: {err}"),
+    });
 
     let has_proxy = if !profile_name.is_empty() {
         let store = ProfileStore::new(layout.clone());
@@ -456,6 +834,24 @@ pub fn get_protection_layers() -> Result<Vec<ProtectionLayer>, String> {
                 "Native fetch patched".to_string()
             } else {
                 "Preload not installed".to_string()
+            },
+        },
+        ProtectionLayer {
+            name: "https_mitm_capture".to_string(),
+            active: is_active && mitm_ready,
+            description: if mitm_ready {
+                "HTTPS MITM certificates ready".to_string()
+            } else {
+                "MITM certificates missing".to_string()
+            },
+        },
+        ProtectionLayer {
+            name: "system_cert_trust".to_string(),
+            active: trust.installed,
+            description: if trust.supported {
+                trust.message
+            } else {
+                "System trust installation is optional and unsupported here".to_string()
             },
         },
         ProtectionLayer {
@@ -541,6 +937,7 @@ pub struct GlobalSettings {
     pub auto_start: bool,
     pub log_level: String,
     pub language: String,
+    pub capture_backend_mode: String,
 }
 
 impl Default for GlobalSettings {
@@ -550,18 +947,29 @@ impl Default for GlobalSettings {
             auto_start: false,
             log_level: "info".to_string(),
             language: "zh-CN".to_string(),
+            capture_backend_mode: "auto".to_string(),
         }
     }
 }
 
-#[tauri::command]
-pub fn get_global_settings() -> Result<GlobalSettings, String> {
-    let layout = layout()?;
+fn load_global_settings_from_root(root: &std::path::Path) -> GlobalSettings {
+    let Ok(layout) = StateLayout::new(root) else {
+        return GlobalSettings::default();
+    };
     let path = layout.config_dir().join("gui_settings.json");
     match std::fs::read_to_string(&path) {
-        Ok(contents) => serde_json::from_str(&contents).map_err(|e| e.to_string()),
-        Err(_) => Ok(GlobalSettings::default()),
+        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+        Err(_) => GlobalSettings::default(),
     }
+}
+
+fn capture_mode_prefers_transparent(mode: &str) -> bool {
+    matches!(mode, "auto" | "transparent")
+}
+
+#[tauri::command]
+pub fn get_global_settings() -> Result<GlobalSettings, String> {
+    Ok(load_global_settings_from_root(&state_root()))
 }
 
 #[tauri::command]
@@ -578,33 +986,70 @@ pub fn save_global_settings(settings: GlobalSettings) -> Result<(), String> {
 #[tauri::command]
 pub async fn start_capture(
     state: tauri::State<'_, crate::capture_manager::CaptureState>,
-) -> Result<u16, String> {
-    // Get upstream proxy from active profile
+) -> Result<CaptureStatus, String> {
     let lay = layout()?;
     let runtime = RuntimeStateStore::new(lay.clone());
     let profile_name = runtime
         .active_profile()
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "No active profile".to_string())?;
+    let settings = load_global_settings_from_root(lay.root());
+    let transparent = crate::mitmproxy_backend::inspect_transparent_capture_support();
 
     let store = ProfileStore::new(lay);
-    let profile = store.load_profile(&profile_name).map_err(|e| e.to_string())?;
-    let proxy_url = profile
-        .policy
-        .proxy_url()
-        .ok_or_else(|| "Active profile has no proxy configured".to_string())?;
+    let profile = store
+        .load_profile(&profile_name)
+        .map_err(|e| e.to_string())?;
 
-    let upstream = ccp_core::proxy_host_port(proxy_url)
-        .ok_or_else(|| "Cannot parse proxy URL".to_string())?;
+    let lay = layout()?;
+    prepare_mitm_capture_for_layout(&lay, Some(&profile_name))?;
 
-    state.start_proxy(upstream, "claude".to_string()).await
+    if capture_mode_prefers_transparent(&settings.capture_backend_mode) {
+        if transparent.available {
+            let status = state
+                .start_transparent_capture(&lay, "all", "claude")
+                .await?;
+            return Ok(CaptureStatus::from_runtime(status));
+        }
+        if settings.capture_backend_mode == "transparent" {
+            return Err(format!(
+                "Transparent capture is selected, but {}",
+                transparent.message
+            ));
+        }
+    }
+
+    let proxy_url = profile.policy.proxy_url().ok_or_else(|| {
+        if capture_mode_prefers_transparent(&settings.capture_backend_mode) {
+            format!(
+                "Transparent capture is not ready: {} Active profile has no upstream proxy configured for explicit fallback.",
+                transparent.message
+            )
+        } else {
+            "Active profile has no proxy configured".to_string()
+        }
+    })?;
+    let upstream =
+        ccp_core::proxy_host_port(proxy_url).ok_or_else(|| "Cannot parse proxy URL".to_string())?;
+    let mitm_material = ensure_mitm_certificates(&lay).map_err(|e| e.to_string())?;
+    let mitm = ccp_sidecar::MitmProxyConfig {
+        ca_cert_pem: std::fs::read_to_string(&mitm_material.ca_cert).map_err(|e| e.to_string())?,
+        ca_key_pem: std::fs::read_to_string(&mitm_material.ca_key).map_err(|e| e.to_string())?,
+        upstream_ca_cert_pem: None,
+        max_body_bytes: 64 * 1024,
+    };
+
+    let status = state
+        .start_explicit_proxy(upstream, "claude".to_string(), Some(mitm), state_root())
+        .await?;
+    Ok(CaptureStatus::from_runtime(status))
 }
 
 #[tauri::command]
 pub async fn stop_capture(
     state: tauri::State<'_, crate::capture_manager::CaptureState>,
 ) -> Result<(), String> {
-    state.stop_proxy().await;
+    state.stop_capture(state_root()).await;
     Ok(())
 }
 
@@ -612,16 +1057,28 @@ pub async fn stop_capture(
 pub async fn get_capture_status(
     state: tauri::State<'_, crate::capture_manager::CaptureState>,
 ) -> Result<CaptureStatus, String> {
-    Ok(CaptureStatus {
-        running: state.is_running().await,
-        port: state.proxy_port().await,
-    })
+    Ok(CaptureStatus::from_runtime(state.status().await))
 }
 
 #[derive(Serialize)]
 pub struct CaptureStatus {
     pub running: bool,
     pub port: Option<u16>,
+    pub backend: String,
+    pub target: Option<String>,
+    pub warning: Option<String>,
+}
+
+impl CaptureStatus {
+    fn from_runtime(status: crate::capture_manager::CaptureRuntimeStatus) -> Self {
+        Self {
+            running: status.running,
+            port: status.port,
+            backend: status.backend,
+            target: status.target,
+            warning: status.warning,
+        }
+    }
 }
 
 #[tauri::command]
@@ -632,9 +1089,7 @@ pub fn get_capture_snapshot(
 }
 
 #[tauri::command]
-pub fn clear_capture_buffer(
-    state: tauri::State<'_, crate::capture_manager::CaptureState>,
-) {
+pub fn clear_capture_buffer(state: tauri::State<'_, crate::capture_manager::CaptureState>) {
     state.buffer().clear();
 }
 
@@ -642,29 +1097,22 @@ pub fn clear_capture_buffer(
 
 #[tauri::command]
 pub async fn detect_egress_ip() -> Result<String, String> {
-    // Try local sidecar port first, then fall back to upstream proxy
     let lay = layout().map_err(|e| e.to_string())?;
-
-    // Check if sidecar is running
-    let port_file = lay.config_dir().join("sidecar_port");
-    let proxy_addr = if let Ok(port_str) = std::fs::read_to_string(&port_file) {
-        format!("127.0.0.1:{}", port_str.trim())
-    } else {
-        // Fall back to upstream proxy from active profile
-        let runtime = RuntimeStateStore::new(lay.clone());
-        let profile_name = runtime
-            .active_profile()
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "No active profile".to_string())?;
-        let store = ProfileStore::new(lay);
-        let profile = store.load_profile(&profile_name).map_err(|e| e.to_string())?;
-        let proxy_url = profile
-            .policy
-            .proxy_url()
-            .ok_or_else(|| "No proxy configured".to_string())?;
-        ccp_core::proxy_host_port(proxy_url)
-            .ok_or_else(|| "Cannot parse proxy URL".to_string())?
-    };
+    let runtime = RuntimeStateStore::new(lay.clone());
+    let profile_name = runtime
+        .active_profile()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No active profile".to_string())?;
+    let store = ProfileStore::new(lay);
+    let profile = store
+        .load_profile(&profile_name)
+        .map_err(|e| e.to_string())?;
+    let proxy_url = profile
+        .policy
+        .proxy_url()
+        .ok_or_else(|| "No proxy configured".to_string())?;
+    let proxy_addr =
+        ccp_core::proxy_host_port(proxy_url).ok_or_else(|| "Cannot parse proxy URL".to_string())?;
 
     ccp_sidecar::detect_egress_ip(&proxy_addr).await
 }

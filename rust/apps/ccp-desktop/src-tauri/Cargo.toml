@@ -22,4 +22,8 @@ ccp-core = { package = "core", path = "../../../crates/core" }
 ccp-store = { package = "store", path = "../../../crates/store" }
 ccp-doctor = { package = "doctor", path = "../../../crates/doctor" }
 ccp-sidecar = { package = "sidecar", path = "../../../crates/sidecar" }
+ccp = { path = "../../../apps/ccp" }
 tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+tempfile = "3"

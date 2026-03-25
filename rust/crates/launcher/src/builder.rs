@@ -145,8 +145,15 @@ impl LaunchPlanBuilder {
         };
 
         if let Some(proxy_url) = plan.policy().proxy_url() {
-            // Check if GUI sidecar proxy is running — route through it for capture
-            let effective_proxy = detect_sidecar_proxy().unwrap_or_else(|| proxy_url.to_string());
+            // Check if GUI sidecar proxy is running — route through it for capture.
+            let effective_proxy = match detect_sidecar_proxy() {
+                Ok(Some(sidecar_proxy)) => sidecar_proxy,
+                Ok(None) => proxy_url.to_string(),
+                Err(warning) => {
+                    eprintln!("warning: {warning}");
+                    proxy_url.to_string()
+                }
+            };
             self.env_plan.insert("HTTPS_PROXY", &effective_proxy);
             self.env_plan.insert("HTTP_PROXY", &effective_proxy);
             self.env_plan.insert("ALL_PROXY", &effective_proxy);
@@ -367,22 +374,48 @@ fn current_platform_capabilities() -> core::CapabilitySet {
 
 /// Check if the GUI's capture proxy is running by reading the sidecar_port file.
 /// If it is, verify the port is actually listening, then return an HTTP proxy URL.
-fn detect_sidecar_proxy() -> Option<String> {
+/// If the file exists but is invalid or stale, return a warning so callers can
+/// surface the fallback explicitly instead of silently ignoring it.
+fn detect_sidecar_proxy() -> Result<Option<String>, String> {
     let state_root = std::env::var("CCP_STATE_ROOT")
         .map(PathBuf::from)
         .ok()
-        .or_else(|| dirs::home_dir().map(|h| h.join(".ccp-rust")))?;
+        .or_else(|| dirs::home_dir().map(|h| h.join(".ccp-rust")))
+        .ok_or_else(|| "could not determine CCP state root for sidecar discovery".to_string())?;
     let port_file = state_root.join("config").join("sidecar_port");
-    let port_str = std::fs::read_to_string(&port_file).ok()?;
-    let port: u16 = port_str.trim().parse().ok()?;
+    let port_str = match std::fs::read_to_string(&port_file) {
+        Ok(port_str) => port_str,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(format!(
+                "failed to read {}: {err}; falling back to configured upstream proxy",
+                port_file.display()
+            ));
+        }
+    };
+    let port: u16 = port_str.trim().parse().map_err(|err| {
+        format!(
+            "invalid sidecar_port contents in {}: {:?} ({err}); falling back to configured upstream proxy",
+            port_file.display(),
+            port_str.trim()
+        )
+    })?;
 
     // Quick check that something is actually listening
     let addr = format!("127.0.0.1:{port}");
-    TcpStream::connect_timeout(
-        &addr.parse().ok()?,
-        Duration::from_millis(200),
-    )
-    .ok()?;
+    let socket_addr = addr.parse().map_err(|err| {
+        format!(
+            "invalid sidecar listener address derived from {}: {addr} ({err}); falling back to configured upstream proxy",
+            port_file.display()
+        )
+    })?;
+    TcpStream::connect_timeout(&socket_addr, Duration::from_millis(200)).map_err(|err| {
+        format!(
+            "sidecar_port at {} points to {}, but no listener is reachable: {err}; falling back to configured upstream proxy",
+            port_file.display(),
+            addr
+        )
+    })?;
 
-    Some(format!("http://127.0.0.1:{port}"))
+    Ok(Some(format!("http://127.0.0.1:{port}")))
 }

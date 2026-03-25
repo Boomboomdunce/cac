@@ -1,5 +1,6 @@
 mod capture_manager;
 mod commands;
+mod mitmproxy_backend;
 mod tray;
 
 use tauri::Manager;
@@ -31,6 +32,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
+            commands::get_setup_status,
+            commands::prepare_mitm_capture,
+            commands::install_mitm_trust,
+            commands::remove_mitm_trust,
+            commands::install_wrappers,
             commands::list_profiles,
             commands::get_profile_identity,
             commands::create_profile,
