@@ -5,6 +5,26 @@ description: Release history and notable changes
 
 All notable changes to this project are documented here. Each entry links to the corresponding PR or issue.
 
+## v1.5.6
+<sub>2026-04-27</sub>
+
+**Fix: SOCKS5 diagnostics were using local DNS instead of proxy DNS**
+
+`cac env create` timezone detection and `cac env check` exit-IP detection previously called `curl --proxy socks5://...` directly. With SOCKS5, that makes `curl` resolve probe domains **locally** instead of through the remote proxy.
+
+In environments with DNS pollution, split-DNS, captive enterprise resolvers, or synthetic test ranges such as `198.18.0.0/15`, that created a bad failure mode:
+
+- the proxy itself was healthy
+- real proxied traffic still worked
+- but diagnostic requests resolved to the wrong address locally and failed during TLS
+- `cac env check` then reported `✗ exit IP unable to verify via proxy`
+- new environments could also inherit the wrong timezone during creation
+
+- Added an internal helper that rewrites curl-based SOCKS5 probes to `socks5h://...`, forcing remote DNS resolution.
+- Fixed timezone geo-detection during `cac env create`.
+- Fixed false-negative exit-IP and timezone diagnostics in `cac env check`.
+- Added a shell regression test to ensure SOCKS5 probe paths keep using `socks5h://`.
+
 ## v1.5.5
 <sub>2026-04-22</sub>
 

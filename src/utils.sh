@@ -1,7 +1,7 @@
 # ── utils: colors, read/write, UUID, proxy parsing ───────────────────────
 
 # shellcheck disable=SC2034  # used in build-concatenated cac script
-CAC_VERSION="1.5.5"
+CAC_VERSION="1.5.6"
 
 _read()   { [[ -f "$1" ]] && tr -d '[:space:]' < "$1" || echo "${2:-}"; }
 _die()    { printf '%b\n' "$(_red "error:") $*" >&2; exit 1; }
@@ -141,6 +141,19 @@ _parse_proxy() {
         echo "http://${host}:${port}"
     else
         echo "http://${user}:${pass}@${host}:${port}"
+    fi
+}
+
+# curl-based health probes should use remote DNS for SOCKS5.
+# Otherwise local DNS pollution can resolve probe domains to sinkhole/test
+# addresses, causing false negatives even when the proxy itself is healthy.
+_curl_proxy_url() {
+    local normalized
+    normalized=$(_parse_proxy "$1")
+    if [[ "$normalized" =~ ^socks5:// ]]; then
+        echo "socks5h://${normalized#socks5://}"
+    else
+        echo "$normalized"
     fi
 }
 

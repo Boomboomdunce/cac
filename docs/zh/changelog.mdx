@@ -5,6 +5,25 @@ description: 版本发布历史和重要变更
 
 所有重要变更记录在此，每个条目关联对应的 PR 或 Issue。
 
+## v1.5.6
+<sub>2026-04-27</sub>
+
+**修复：SOCKS5 代理诊断错误使用本地 DNS**
+
+`cac env create` 的时区探测和 `cac env check` 的出口 IP 探测之前都直接调用 `curl --proxy socks5://...`。对 SOCKS5 来说，这会让 `curl` 默认在**本地**解析目标域名，而不是让远端代理解析。
+
+在存在本地 DNS 污染、分流 DNS、企业网劫持或实验网保留地址（如 `198.18.0.0/15`）的环境里，这会导致：
+
+- 代理本身可连、真实流量也可正常通过
+- 但诊断请求解析到错误地址，TLS 握手失败
+- 最终把健康代理误报成 `✗ exit IP unable to verify via proxy`
+- 新环境还可能因此写入错误的时区
+
+- 新增内部 helper，把所有基于 `curl` 的 SOCKS5 探测统一转换为 `socks5h://...`，强制使用远端 DNS。
+- 修复 `cac env create` 的地理时区探测，避免环境首次创建时落入错误时区。
+- 修复 `cac env check` 的出口 IP / 时区探测误报。
+- 新增 shell 回归测试，确保 `socks5://` 在探测路径里始终被转换成 `socks5h://`。
+
 ## v1.5.5
 <sub>2026-04-22</sub>
 

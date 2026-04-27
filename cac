@@ -11,7 +11,7 @@ VERSIONS_DIR="$CAC_DIR/versions"
 # ── utils: colors, read/write, UUID, proxy parsing ───────────────────────
 
 # shellcheck disable=SC2034  # used in build-concatenated cac script
-CAC_VERSION="1.5.5"
+CAC_VERSION="1.5.6"
 
 _read()   { [[ -f "$1" ]] && tr -d '[:space:]' < "$1" || echo "${2:-}"; }
 _die()    { printf '%b\n' "$(_red "error:") $*" >&2; exit 1; }
@@ -151,6 +151,19 @@ _parse_proxy() {
         echo "http://${host}:${port}"
     else
         echo "http://${user}:${pass}@${host}:${port}"
+    fi
+}
+
+# curl-based health probes should use remote DNS for SOCKS5.
+# Otherwise local DNS pollution can resolve probe domains to sinkhole/test
+# addresses, causing false negatives even when the proxy itself is healthy.
+_curl_proxy_url() {
+    local normalized
+    normalized=$(_parse_proxy "$1")
+    if [[ "$normalized" =~ ^socks5:// ]]; then
+        echo "socks5h://${normalized#socks5://}"
+    else
+        echo "$normalized"
     fi
 }
 
@@ -1837,7 +1850,7 @@ _env_cmd_create() {
     if [[ -n "$proxy_url" ]]; then
         printf "  $(_dim "Detecting timezone ...") "
         local ip_info
-        ip_info=$(curl -s --proxy "$proxy_url" --connect-timeout 8 "http://ip-api.com/json/?fields=timezone,countryCode" 2>/dev/null || true)
+        ip_info=$(curl -s --proxy "$(_curl_proxy_url "$proxy_url")" --connect-timeout 8 "http://ip-api.com/json/?fields=timezone,countryCode" 2>/dev/null || true)
         if [[ -n "$ip_info" ]]; then
             local detected_tz country_code
             read -r detected_tz country_code < <(echo "$ip_info" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('timezone',''), d.get('countryCode',''))" 2>/dev/null || echo "")
@@ -2650,7 +2663,7 @@ cmd_check() {
             for _ip_url in $_urls; do
                 _dots="${_dots}."
                 printf "\r    · exit IP    $(_dim "detecting${_dots}")"
-                proxy_ip=$(curl --proxy "$proxy" --connect-timeout 3 --max-time 6 "$_ip_url" 2>/dev/null || true)
+                proxy_ip=$(curl --proxy "$(_curl_proxy_url "$proxy")" --connect-timeout 3 --max-time 6 "$_ip_url" 2>/dev/null || true)
                 [[ "$proxy_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && break
                 proxy_ip=""
             done
@@ -2661,7 +2674,7 @@ cmd_check() {
                 local env_tz; env_tz=$(_read "$env_dir/tz" "")
                 if [[ -n "$env_tz" ]] && [[ -n "$proxy_ip" ]]; then
                     local ip_tz
-                    ip_tz=$(curl -s --proxy "$proxy" --connect-timeout 5 "http://ip-api.com/json/$proxy_ip?fields=timezone" 2>/dev/null | \
+                    ip_tz=$(curl -s --proxy "$(_curl_proxy_url "$proxy")" --connect-timeout 5 "http://ip-api.com/json/$proxy_ip?fields=timezone" 2>/dev/null | \
                         python3 -c "import sys,json; print(json.load(sys.stdin).get('timezone',''))" 2>/dev/null || true)
                     if [[ -n "$ip_tz" ]] && [[ "$ip_tz" != "$env_tz" ]]; then
                         echo "    $(_yellow "⚠") TZ        mismatch: env=$env_tz, IP=$ip_tz"

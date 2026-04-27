@@ -199,7 +199,7 @@ cmd_check() {
             for _ip_url in $_urls; do
                 _dots="${_dots}."
                 printf "\r    · exit IP    $(_dim "detecting${_dots}")"
-                proxy_ip=$(curl --proxy "$proxy" --connect-timeout 3 --max-time 6 "$_ip_url" 2>/dev/null || true)
+                proxy_ip=$(curl --proxy "$(_curl_proxy_url "$proxy")" --connect-timeout 3 --max-time 6 "$_ip_url" 2>/dev/null || true)
                 [[ "$proxy_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && break
                 proxy_ip=""
             done
@@ -210,7 +210,7 @@ cmd_check() {
                 local env_tz; env_tz=$(_read "$env_dir/tz" "")
                 if [[ -n "$env_tz" ]] && [[ -n "$proxy_ip" ]]; then
                     local ip_tz
-                    ip_tz=$(curl -s --proxy "$proxy" --connect-timeout 5 "http://ip-api.com/json/$proxy_ip?fields=timezone" 2>/dev/null | \
+                    ip_tz=$(curl -s --proxy "$(_curl_proxy_url "$proxy")" --connect-timeout 5 "http://ip-api.com/json/$proxy_ip?fields=timezone" 2>/dev/null | \
                         python3 -c "import sys,json; print(json.load(sys.stdin).get('timezone',''))" 2>/dev/null || true)
                     if [[ -n "$ip_tz" ]] && [[ "$ip_tz" != "$env_tz" ]]; then
                         echo "    $(_yellow "⚠") TZ        mismatch: env=$env_tz, IP=$ip_tz"

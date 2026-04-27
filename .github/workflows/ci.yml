@@ -55,6 +55,9 @@ jobs:
           fi
           echo "✓ Build output matches committed file"
 
+      - name: Run proxy regression checks
+        run: bash scripts/test-socks5h-probes.sh
+
   js-check:
     name: JS syntax
     runs-on: ubuntu-latest

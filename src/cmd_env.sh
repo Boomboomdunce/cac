@@ -59,7 +59,7 @@ _env_cmd_create() {
     if [[ -n "$proxy_url" ]]; then
         printf "  $(_dim "Detecting timezone ...") "
         local ip_info
-        ip_info=$(curl -s --proxy "$proxy_url" --connect-timeout 8 "http://ip-api.com/json/?fields=timezone,countryCode" 2>/dev/null || true)
+        ip_info=$(curl -s --proxy "$(_curl_proxy_url "$proxy_url")" --connect-timeout 8 "http://ip-api.com/json/?fields=timezone,countryCode" 2>/dev/null || true)
         if [[ -n "$ip_info" ]]; then
             local detected_tz country_code
             read -r detected_tz country_code < <(echo "$ip_info" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('timezone',''), d.get('countryCode',''))" 2>/dev/null || echo "")
